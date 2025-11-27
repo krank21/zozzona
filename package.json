@@ -5,13 +5,13 @@
   "type": "module",
   "license": "MIT",
   "author": "Roger Tremblay",
-  "homepage": "https://github.com/yourusername/zozzona-js#readme",
+  "homepage": "https://github.com/krank21/zozzona-js#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/zozzona-js.git"
+    "url": "https://github.com/krank21/zozzona.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/zozzona-js/issues"
+    "url": "https://github.com/krank21/zozzona-js/issues"
   },
   "keywords": [
     "obfuscation",

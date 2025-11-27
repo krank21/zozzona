@@ -1,0 +1,57 @@
+{
+  "name": "@zozzona/js",
+  "version": "1.0.0",
+  "description": "Advanced source protection toolkit (obfuscate → minify → encrypt) with reversible unpacking and git-safe automation.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Roger Tremblay",
+  "homepage": "https://github.com/yourusername/zozzona-js#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/zozzona-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/zozzona-js/issues"
+  },
+  "keywords": [
+    "obfuscation",
+    "minification",
+    "encryption",
+    "source-protection",
+    "security",
+    "build-tools",
+    "javascript",
+    "pack",
+    "deploy",
+    "crypto",
+    "aes",
+    "zozzona"
+  ],
+  "bin": {
+    "zozzona": "bin/zozzona"
+  },
+  "files": [
+    "src/",
+    "bin/",
+    "templates/",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "src/runner.js",
+  "exports": {
+    "./runner": "./src/runner.js",
+    "./minify": "./src/minify.js",
+    "./obfuscate": "./src/obfuscate.js",
+    "./utils": "./src/zozzonaUtils.js"
+  },
+  "dependencies": {
+    "fs-extra": "^11.0.0",
+    "glob": "^10.0.0",
+    "dotenv": "^17.0.0",
+    "terser": "^5.0.0",
+    "@babel/core": "^7.0.0",
+    "@babel/generator": "^7.0.0",
+    "@babel/traverse": "^7.0.0",
+    "@babel/parser": "^7.0.0"
+  }
+}

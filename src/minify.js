@@ -4,7 +4,9 @@ import path from "path";
 import { glob } from "glob";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
+
 const terser = require("terser");
+const babel = require("@babel/core");
 
 const NAME_CACHE_FILE = "terser-name-cache.json";
 const MINIFY_MAP_FILE = "minify-map.json";
@@ -35,15 +37,36 @@ async function readFiles() {
     ignore.push(...process.env.MIN_IGNORE.split(","));
   }
 
-  return await glob(PATTERN, {
-    nodir: true,
-    ignore
-  });
+  return await glob(PATTERN, { nodir: true, ignore });
 }
 
-function encode(text) { return Buffer.from(text, "utf8").toString("base64"); }
+function encode(txt) { return Buffer.from(txt, "utf8").toString("base64"); }
 function decode(b64) { return Buffer.from(b64, "base64").toString("utf8"); }
 
+// --- NEW JSX transform ---
+async function transformJSX(input, filename) {
+  const isJSX = filename.endsWith(".jsx") || filename.endsWith(".tsx");
+
+  if (!isJSX) return input;
+
+  const result = await babel.transformAsync(input, {
+    filename,
+    babelrc: false,
+    configFile: false,
+    presets: [
+      [
+        require("@babel/preset-react"),
+        { runtime: "automatic" }
+      ]
+    ],
+    plugins: [],
+    sourceMaps: false
+  });
+
+  return result.code;
+}
+
+// --- Minifier ---
 async function minify() {
   const files = await readFiles();
   if (!files.length) return;
@@ -58,16 +81,20 @@ async function minify() {
 
   for (const file of files) {
     const abs = path.resolve(file);
-    const original = await fs.readFile(abs, "utf8");
+    let original = await fs.readFile(abs, "utf8");
+
+    // JSX transform pre-step
+    const jsCode = await transformJSX(original, file);
 
     const origHash = encode(original).slice(0, 16);
     if (map[file]?.origHash === origHash) continue;
 
     const res = await terser.minify(
-      { [path.basename(file)]: original },
+      { [path.basename(file)]: jsCode },
       {
         compress: true,
         mangle: { toplevel: false },
+        format: { comments: false },
         sourceMap: {
           filename: path.basename(file),
           url: path.basename(file) + ".map"
@@ -85,10 +112,13 @@ async function minify() {
     };
 
     const clean = res.code.replace(/\/\/# sourceMappingURL=.*\n?/g, "");
-    await fs.writeFile(abs, clean);
+    await fs.writeFile(abs, clean, "utf8");
 
     if (res.map) {
-      await fs.writeFile(abs + ".map", typeof res.map === "string" ? res.map : JSON.stringify(res.map));
+      await fs.writeFile(
+        abs + ".map",
+        typeof res.map === "string" ? res.map : JSON.stringify(res.map)
+      );
     }
 
     console.log("Minified", file);
@@ -98,6 +128,7 @@ async function minify() {
   await fs.writeJson(NAME_CACHE_FILE, nameCache, { spaces: 2 });
 }
 
+// --- Restore originals ---
 async function restore() {
   if (!await fs.pathExists(MINIFY_MAP_FILE)) return;
 
@@ -106,8 +137,9 @@ async function restore() {
   for (const file of Object.keys(map)) {
     const abs = path.resolve(file);
     const original = decode(map[file].original_b64);
+
     await fs.mkdirp(path.dirname(abs));
-    await fs.writeFile(abs, original);
+    await fs.writeFile(abs, original, "utf8");
 
     const m = abs + ".map";
     if (await fs.pathExists(m)) await fs.remove(m);
@@ -120,6 +152,6 @@ async function restore() {
   const cmd = process.argv[2];
 
   if (cmd === "minify") await minify();
-  else if (cmd === "deminify" || cmd === "restore") await restore();
+  else if (cmd === "restore" || cmd === "deminify") await restore();
   else console.log("Usage: minify.js [minify|restore]");
 })();

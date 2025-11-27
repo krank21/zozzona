@@ -49,9 +49,15 @@
     "glob": "^10.0.0",
     "dotenv": "^17.0.0",
     "terser": "^5.0.0",
+
     "@babel/core": "^7.0.0",
+    "@babel/parser": "^7.0.0",
     "@babel/generator": "^7.0.0",
     "@babel/traverse": "^7.0.0",
-    "@babel/parser": "^7.0.0"
+
+    "@babel/preset-react": "^7.22.5",
+    "@babel/preset-typescript": "^7.22.5",
+    "@babel/preset-env": "^7.22.9"
   }
+
 }

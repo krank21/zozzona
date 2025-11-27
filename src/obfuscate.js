@@ -5,7 +5,7 @@ import { glob } from 'glob';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 
-/* NEW: PACK_INCLUDE / PACK_IGNORE support */
+/* PACK_INCLUDE / PACK_IGNORE */
 function buildPatternFromEnv() {
   const inc = process.env.PACK_INCLUDE ? process.env.PACK_INCLUDE.split(',') : [];
   const ign = process.env.PACK_IGNORE ? process.env.PACK_IGNORE.split(',') : [];
@@ -18,7 +18,6 @@ function buildPatternFromEnv() {
   return pattern;
 }
 const CONFIG_PATTERN = buildPatternFromEnv();
-/* -------------------------------------------------------- */
 
 const parser = require('@babel/parser');
 const traversePkg = require('@babel/traverse');
@@ -29,9 +28,13 @@ const generate = generatePkg.default || generatePkg;
 const DEFAULT_GLOB = 'src/**/*.{js,jsx,ts,tsx}';
 const MAP_FILE = 'obfuscation-map.json';
 
-// UPDATED readAllFiles()
+/* UPDATED — ignore JSON, package.json */
 async function readAllFiles(globPattern) {
-  const ignoreList = ['**/node_modules/**'];
+  const ignoreList = [
+    "**/node_modules/**",
+    "**/*.json",          // ⬅ NEW
+    "**/package.json"     // ⬅ NEW
+  ];
 
   if (process.env.OBF_IGNORE) {
     ignoreList.push(...process.env.OBF_IGNORE.split(','));
@@ -39,8 +42,6 @@ async function readAllFiles(globPattern) {
 
   return await glob(globPattern, { nodir: true, ignore: ignoreList });
 }
-
-// (REST OF YOUR ORIGINAL obfuscation code — unchanged)
 
 function parseCode(code, filename) {
   const isTS = filename.endsWith('.ts') || filename.endsWith('.tsx');
@@ -87,7 +88,10 @@ async function obfuscate(globPattern = DEFAULT_GLOB, mapFile = MAP_FILE) {
     const code = await fs.readFile(abs, 'utf8');
     let ast;
     try { ast = parseCode(code, file); }
-    catch (e) { console.warn(`Parse error in ${file}: ${e.message}`); continue; }
+    catch (e) {
+      console.warn(`Parse error in ${file}: ${e.message}`);
+      continue;
+    }
 
     traverse(ast, {
       enter(path) {
@@ -163,7 +167,6 @@ function unrenameImportLike(path, inv){
 async function main() {
   const cmd = process.argv[2] || 'obfuscate';
 
-  /* NEW final pattern: */
   const pattern =
     CONFIG_PATTERN ||
     process.env.OBF_GLOB ||

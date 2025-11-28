@@ -16,6 +16,19 @@ Protect your real source code while keeping your workflow completely seamless.
 
 ---
 
+# 📚 Documentation
+
+| Guide | Description |
+|-------|-------------|
+| 👉 [Quick Start](./docs/QUICKSTART.md) | Fastest way to begin using Zozzona |
+| 👉 [Configuration Guide](./docs/CONFIG.md) | How `pack.config.json` works |
+| 👉 [Workflow Guide](./docs/WORKFLOW.md) | How commits, packing & unpacking integrate |
+| 👉 [FAQ](./docs/FAQ.md) | Common answers and troubleshooting |
+
+All docs live inside `/docs/`.
+
+---
+
 # 🚀 Overview
 
 `@zozzona/js` is a **reversible multi-layer source protection pipeline** engineered for modern JavaScript and TypeScript projects.

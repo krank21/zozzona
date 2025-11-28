@@ -10,6 +10,9 @@
     "type": "git",
     "url": "https://github.com/krank21/zozzona.git"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "bugs": {
     "url": "https://github.com/krank21/zozzona/issues"
   },
@@ -59,5 +62,4 @@
     "@babel/preset-typescript": "^7.22.5",
     "@babel/preset-env": "^7.22.9"
   }
-
 }

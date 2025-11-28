@@ -96,7 +96,9 @@ function ensurePackageScripts() {
     obfuscate: "node node_modules/@zozzona/js/src/obfuscate.js obfuscate",
     deobfuscate: "node node_modules/@zozzona/js/src/obfuscate.js deobfuscate",
     minify: "node node_modules/@zozzona/js/src/minify.js minify",
-    deminify: "node node_modules/@zozzona/js/src/minify.js restore"
+    deminify: "node node_modules/@zozzona/js/src/minify.js restore",
+    pack: "zozzona pack",
+    unpack: "zozzona unpack"
   };
 
   for (const [key, value] of Object.entries(required)) {
@@ -112,8 +114,18 @@ function ensurePackageScripts() {
   }
 }
 
-// Install Husky hooks
+// ─────────────────────────────────────────────
+// Install Husky automatically
+// ─────────────────────────────────────────────
 function installHusky() {
+  console.log("📦 Installing Husky...");
+
+  // Install husky (automated)
+  execSync("npm install husky --save-dev", { stdio: "inherit" });
+
+  console.log("🔧 Running husky install...");
+  execSync("npx husky install", { stdio: "inherit" });
+
   fs.mkdirpSync(".husky");
 
   const pre = path.join(".husky", "pre-commit");
@@ -125,8 +137,7 @@ function installHusky() {
   fs.chmodSync(pre, 0o755);
   fs.chmodSync(post, 0o755);
 
-  console.log("✔ Husky hooks installed");
-  console.log("👉 Run: npm install   (this activates Husky)");
+  console.log("✔ Husky hooks installed and activated");
 }
 
 // ─────────────────────────────────────────────
@@ -149,7 +160,9 @@ Usage:
   }
 
   if (cmd === "version") {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "../package.json"), "utf-8"));
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "../package.json"), "utf-8")
+    );
     console.log(pkg.version);
     return;
   }

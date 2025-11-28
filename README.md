@@ -20,12 +20,18 @@ Protect your real source code while keeping your workflow completely seamless.
 
 | Guide | Description |
 |-------|-------------|
-| 👉 [Quick Start](./docs/QUICKSTART.md) | Fastest way to begin using Zozzona |
-| 👉 [Configuration Guide](./docs/CONFIG.md) | How `pack.config.json` works |
-| 👉 [Workflow Guide](./docs/WORKFLOW.md) | How commits, packing & unpacking integrate |
+| 👉 [QUICKSTART](./docs/QUICKSTART.md) | Fastest way to begin using Zozzona |
+| 👉 [CONFIG](./docs/CONFIG.md) | How `pack.config.json` works |
+| 👉 [WORKFLOW](./docs/WORKFLOW.md) | How commits, packing & unpacking integrate |
 | 👉 [FAQ](./docs/FAQ.md) | Common answers and troubleshooting |
-
-All docs live inside `/docs/`.
+| 👉 [HOOKS](./docs/HOOKS.md) | Details on Husky automation and custom workflows |
+| 👉 [CICD](./docs/CICD.md) | How to integrate Zozzona into CI/CD pipelines |
+| 👉 [INTEGRATIONS](./docs/INTEGRATIONS.md) | Using Zozzona with React, Node, monorepos, build tools, etc. |
+| 👉 [SECURITY](./docs/SECURITY.md) | Encryption model, MAP_KEY handling, threat considerations |
+| 👉 [SECURE_PUBLISHING](./docs/SECURE_PUBLISHING.md) | How to publish obfuscated packages safely |
+| 👉 [INTERNALS](./docs/INTERNALS.md) | Deep dive into maps, transforms, encryption layers |
+| 👉 [ROADMAP](./docs/ROADMAP.md) | Planned features and future development |
+| 👉 [CONTRIBUTIONS](./docs/CONTRIBUTIONS.md) | How to contribute, PR guidelines, development setup |
 
 ---
 

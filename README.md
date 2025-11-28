@@ -15,7 +15,7 @@ Protect your real source code while keeping your workflow completely seamless.
 ![PRs](https://img.shields.io/badge/PRs-welcome-green)
 
 ---
-
+<!--
 # 🎥 Demo (GIF Placeholder)
 
 > Replace this with your real GIF later.  
@@ -23,7 +23,7 @@ Protect your real source code while keeping your workflow completely seamless.
 
 ![Demo GIF Placeholder](https://via.placeholder.com/900x500?text=Zozzona+Demo+GIF+Here)
 
----
+--- -->
 
 # 🚀 Overview
 

@@ -1,39 +1,128 @@
-# 📦 @zozzona/js
-## Secure JavaScript Source Protection Toolkit
+# 📦 @zozzona/js  
+## **Secure JavaScript & TypeScript Source Protection Toolkit**
 
-Obfuscate → Minify → Encrypt — and restore it all with a single command.
-
----
-
-## 🚀 Overview
-
-@zozzona/js is a drop-in protection layer for JavaScript/TypeScript projects.
-
-It performs a full reversible transformation:
-
-- Obfuscate names (Babel transform)
-- Minify code (Terser + Map Capture)
-- Encrypt all map files (AES-256-GCM)
-- Restore everything perfectly on unpack
-
-Your real source code is never committed, only the protected version is.
-
-Perfect for:
-
-- Protecting proprietary code
-- Shipping “compiled only” Node projects
-- Git-safe reversible obfuscation workflows
-- CI/CD pipelines that require source sanitization
+**Obfuscate → Minify → Encrypt → Reversible.**  
+Protect your real source code while keeping your workflow completely seamless.
 
 ---
 
-## 📥 Install
+# 🏷️ Badges
+
+![npm](https://img.shields.io/npm/v/%40zozzona%2Fjs?color=blue)
+![downloads](https://img.shields.io/npm/dm/%40zozzona%2Fjs)
+![license](https://img.shields.io/github/license/krank21/zozzona)
+![issues](https://img.shields.io/github/issues/krank21/zozzona)
+![PRs](https://img.shields.io/badge/PRs-welcome-green)
+
+---
+
+# 🎥 Demo (GIF Placeholder)
+
+> Replace this with your real GIF later.  
+> Recommended size: **900×500**, 12–20 sec screen capture.
+
+![Demo GIF Placeholder](https://via.placeholder.com/900x500?text=Zozzona+Demo+GIF+Here)
+
+---
+
+# 🚀 Overview
+
+\@zozzona/js is a reversible, multi-layer source protection pipeline engineered for modern JavaScript projects.
+
+It provides:
+
+- **AST-based identifier obfuscation** (Babel)  
+- **JS/JSX/TS/TSX minification** (Terser)  
+- **AES-256-GCM encryption** of all maps  
+- **Perfect restoration** back to original source  
+- **Git-safe automated workflows** with Husky  
+
+Your **real editable source code never leaves your machine**—only protected output is committed or deployed.
+
+Designed for:
+
+- Protecting proprietary libraries  
+- Shipping “compiled-only” Node, React, Vue, Svelte  
+- Hardening server-side and client-side source  
+- Sanitizing CI/CD pipelines  
+- Teams with sensitive intellectual property  
+- Closed-source commercial products  
+
+---
+
+# 🎯 Why Zozzona?
+
+## **Built for real development workflows**
+
+Most obfuscation tools:
+
+- Permanently alter the project  
+- Break source maps  
+- Are not reversible  
+- Do not support modern JSX/TS  
+- Cannot run safely in Git hooks  
+- Do not protect mapping metadata  
+- Cannot be used reliably in CI/CD
+
+Zozzona solves all of these.
+
+---
+
+# 🔥 Key Features
+
+### ✔ **Reversible Protection**  
+Unpack restores your exact original source—byte for byte.
+
+### ✔ **Modern Syntax Support**  
+JS, JSX, TS, TSX, decorators, class fields, optional chaining, etc.
+
+### ✔ **Zero Workflow Disruption**  
+You keep editing your real code; commits contain only protected code.
+
+### ✔ **AES-256-GCM Encrypted Maps**  
+All transformation metadata is encrypted and removed from disk.
+
+### ✔ **Secure CI/CD Ready**  
+Deploy protected builds—no source leaks in pipelines.
+
+### ✔ **Husky Git Automation (pre/post commit)**  
+Commits stay protected; your working directory stays original.
+
+### ✔ **Highly Configurable**  
+Choose which folders/files to protect via pack.config.json.
+
+### ✔ **Filesystem Stable**  
+File paths, extensions, and project structure remain intact.
+
+---
+
+# 🆚 Comparison With Other Tools
+
+| Feature / Tool        | Zozzona | JS-Obfuscator | Terser | SWC | Babel Minify |
+|-----------------------|:------:|:-------------:|:------:|:---:|:-------------:|
+| Obfuscates identifiers | ✔ | ✔ | ❌ | ❌ | ❌ |
+| Minifies code | ✔ | ✔* | ✔ | ✔ | ✔ |
+| JSX/TSX support | ✔ | ❌ | ❌ | ✔* | ❌ |
+| Reversible | ✔ | ❌ | ❌ | ❌ | ❌ |
+| Encrypts maps | ✔ | ❌ | ❌ | ❌ | ❌ |
+| Git workflow automation | ✔ | ❌ | ❌ | ❌ | ❌ |
+| CI/CD safe | ✔ | ⚠️ | ✔ | ✔ | ✔ |
+| Protects mapping metadata | ✔ | ❌ | ❌ | ❌ | ❌ |
+| Supports multiple folders | ✔ | ⚠️ | ✔ | ✔ | ✔ |
+
+\* depends on configuration / plugins.
+
+Zozzona is uniquely designed for **real project protection with easy reversibility**.
+
+---
+
+# 📥 Install
 
 \`\`\`bash
 npm install @zozzona/js
 \`\`\`
 
-To access the CLI:
+CLI access:
 
 \`\`\`bash
 npx zozzona
@@ -41,115 +130,79 @@ npx zozzona
 
 ---
 
-## 🧰 Commands
+# 🧰 Commands
 
-| Command        | Description |
-|----------------|-------------|
-| zozzona init   | Creates .env, injects MAP_KEY, installs Husky hooks, creates pack.config.json, adds npm scripts |
-| zozzona pack   | Obfuscate → Minify → Encrypt (.enc) |
-| zozzona unpack | Decrypt → Restore → Deobfuscate |
-| zozzona version| Show installed package version |
+| Command | Description |
+|--------|-------------|
+| \`zozzona init\` | Sets up .env + MAP_KEY, creates pack.config.json, adds npm scripts, installs Husky |
+| \`zozzona pack\` | Obfuscate → Minify → Encrypt |
+| \`zozzona unpack\` | Decrypt → Restore → Deobfuscate |
+| \`zozzona version\` | Display installed version |
 
 ---
 
-## ⚙️ Quick Start
+# ⚙️ Quick Start
 
-### 1. Initialize your project
+## **1. Initialize**
 
 \`\`\`bash
 npx zozzona init
 \`\`\`
 
-This will:
+Creates and displays:
 
-- Create .env (or add MAP_KEY if missing)
-- Show you the full contents of your .env
-- Warn you not to commit .env
-- Create pack.config.json
-- Add required npm scripts
-- Install Husky Git hooks
+- \`.env\` with \`MAP_KEY\`
+- \`pack.config.json\`
+- Husky hooks
+- Required scripts in package.json
 
 ---
 
-### 2. Protect your project
+## **2. Protect your code**
 
 \`\`\`bash
 npx zozzona pack
 \`\`\`
 
-This runs:
+Output includes encrypted:
 
-- npm run obfuscate  
-- npm run minify  
-- Encrypts all map files + internal metadata  
-
-Your source files are now protected.
+- \`obfuscation-map.json.enc\`
+- \`minify-map.json.enc\`
+- \`terser-name-cache.json.enc\`
+- All \`*.map.enc\`
 
 ---
 
-### 3. Restore original source
+## **3. Restore original source**
 
-\`\`\`bash
+\`\`\```bash
 npx zozzona unpack
 \`\`\`
 
-This performs:
-
-- AES-GCM decryption of all map files  
-- Minify reversal  
-- Deobfuscation  
-- Cleanup of encrypted artifacts  
-
-Everything goes back to the exact original code.
+Perfectly restores original project state.
 
 ---
 
-## 🛡️ Why this works
+# 🔐 MAP_KEY & .env
 
-Zozzona creates and uses three reversible mapping layers:
-
-| Layer              | File                     | Purpose                         |
-|--------------------|--------------------------|---------------------------------|
-| Obfuscation Map    | obfuscation-map.json     | Tracks renamed identifiers      |
-| Minify Map         | minify-map.json          | Stores original unminified code |
-| Terser Name Cache  | terser-name-cache.json   | Ensures consistent mangling     |
-
-Before pack completes:
-
-- All three are encrypted using AES-256-GCM  
-- Original maps are destroyed  
-
-On unpack:
-
-- Maps are decrypted  
-- Rehydrated  
-- Piped back into the reverse transforms  
-
----
-
-## 🔐 .env and MAP_KEY
-
-Zozzona uses a randomly generated 32-byte AES-256 key, stored in:
+Zozzona generates a 32-byte AES-256-GCM key:
 
 \`\`\`
-.env
 MAP_KEY=BASE64_ENCODED_KEY
 \`\`\`
 
-⚠️ You MUST protect your .env
+⚠️ **Critical Notes**
 
-- Do not commit .env  
-- Add it to .gitignore  
-- If you lose MAP_KEY, you cannot unpack your code  
-- Back it up somewhere secure  
-
-Zozzona clearly prints your full .env contents during init.
+- NEVER commit \`.env\`
+- Losing \`MAP_KEY\` = losing ability to unpack  
+- Back it up securely  
+- Zozzona prints .env contents clearly after init  
 
 ---
 
-## 🧩 pack.config.json
+# 📁 pack.config.json
 
-Example (auto-generated):
+Example:
 
 \`\`\`json
 {
@@ -159,102 +212,103 @@ Example (auto-generated):
 }
 \`\`\`
 
-You may customize:
+Supports multi-folder protection:
 
-- Which folders to protect  
-- Which files to include  
-- Which patterns to exclude  
+\`\`\`json
+{
+  "folders": ["src", "server", "templates"],
+  "files": ["server/package.json"],
+  "ignore": ["dist", "public"]
+}
+\`\`\`
 
 ---
 
-## 🔄 Git Automation (Husky)
+# 🔄 Husky Git Automation
 
 Zozzona installs:
 
-- .husky/pre-commit  
-- .husky/post-commit  
-
-Pre-Commit:
-
+### **pre-commit**
 \`\`\`bash
-npx zozzona pack
+zozzona pack
 \`\`\`
 
-Post-Commit:
-
+### **post-commit**
 \`\`\`bash
-npx zozzona unpack
+zozzona unpack
 \`\`\`
 
-This means:
+This workflow ensures:
 
-- Your committed state is ALWAYS protected  
-- Your working directory remains original and editable  
-- A perfect reversible Git workflow  
+- **committed code = protected**
+- **working directory = original**
+- **no accidental commit of real source**
 
 ---
 
-## 🧪 Example Workflow
+# 🧪 Example Real Workflow
 
-Before Commit  
-Edit your real source.
-
-Commit  
-Husky automatically runs:
+1. You edit original code  
+2. You commit  
+3. Husky runs:
 
 \`\`\`bash
 zozzona pack
-git add .
+git add -A
 \`\`\`
 
-Protected code is committed.
-
-After Commit  
-Husky restores your original source so you can continue editing.
+4. Protected code gets committed  
+5. Husky unpacks back to original so you continue working normally  
 
 ---
 
-## 🛠 Advanced Usage
+# 🧨 Limitations (Intentional)
 
-Regenerate MAP_KEY manually:
+Zozzona **does not**:
+
+- Prevent browser devtools inspection  
+- Act as commercial licensing / DRM  
+- Replace real binary compilation  
+- Protect against memory/runtime dumps  
+
+It *does* give you **the strongest reversible source protection available for JS ecosystems**.
+
+---
+
+# 🛠 Advanced Usage
+
+Generate a fresh MAP_KEY:
 
 \`\`\`bash
 openssl rand -base64 32
 \`\`\`
 
-Update .env:
-
-\`\`\`
-MAP_KEY=NEW_KEY_HERE
-\`\`\`
-
-Then:
+Replace key, then:
 
 \`\`\`bash
-zozzona unpack   # restore state using old key
-zozzona pack     # repack using new key
+zozzona unpack
+zozzona pack
 \`\`\`
 
 ---
 
-## 🧨 What Zozzona does NOT do
+# 🚢 Publishing Your Own Fork to npm
 
-- It does not permanently destroy source  
-- It does not provide license enforcement  
-- It does not prevent runtime inspection  
-- It does not replace real binary compilation  
-
-It *does* provide a strong reversible protection workflow.
-
----
-
-## 🧑‍💻 Contributing
-
-Feedback and contributions welcome!  
-Open an issue or submit a pull request.
+\`\`\```bash
+npm login
+npm version patch
+npm publish --access public
+\`\`\`
 
 ---
 
-## 📄 License
+# 🧑‍💻 Contributing
 
-MIT License © 2025 Zozzona.js
+PRs and issues welcome!  
+https://github.com/krank21/zozzona
+
+---
+
+# 📄 License
+
+**MIT License © 2025 – Zozzona.js (Roger Tremblay)**  

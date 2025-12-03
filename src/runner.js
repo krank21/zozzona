@@ -44,7 +44,7 @@ async function run(cmd, args = [], env = {}) {
 }
 
 // ===============================================================
-// ORIGINAL REVERSIBLE SOURCE PIPELINE (pack / unpack)
+// ORIGINAL REVERSIBLE SOURCE PIPELINE (pack / unpack, JS only)
 // ===============================================================
 
 // Build **only JS-related** include patterns
@@ -55,7 +55,7 @@ function buildIncludePatterns() {
     patterns.push(`${folder}/**/*.{js,jsx,ts,tsx}`);
   }
 
-  // Only allow JS files in files[] (skip JSON)
+  // Only allow JS files in files[] (skip JSON / CSS etc.)
   for (const file of PACK_CONFIG.files) {
     if (/\.(js|jsx|ts|tsx)$/.test(file)) {
       patterns.push(file);
@@ -67,7 +67,7 @@ function buildIncludePatterns() {
   return patterns;
 }
 
-// Build ignore list (JSON gets ignored automatically)
+// Build ignore list (JSON gets ignored automatically by JS pipeline)
 function buildIgnorePatterns() {
   const ignore = [
     "**/*.json",
@@ -95,10 +95,15 @@ function buildGlobEnv() {
   };
 }
 
+// ===============================================================
+// MAP FILES (JS + JSON + CSS)
+// ===============================================================
 const MAP_FILES = [
   "minify-map.json",
   "terser-name-cache.json",
-  "obfuscation-map.json"
+  "obfuscation-map.json",
+  "json-minify-map.json", // new: reversible JSON map
+  "css-minify-map.json"   // new: reversible CSS map
 ];
 
 async function remove(file) {
@@ -106,16 +111,19 @@ async function remove(file) {
 }
 
 async function clearMaps() {
+  // Known maps (.json + .json.enc)
   for (const f of MAP_FILES) {
     await remove(f);
     await remove(f + ".enc");
   }
 
+  // Any stray *.map / *.map.enc
   for (const f of globSync("**/*.map")) await remove(f);
   for (const f of globSync("**/*.map.enc")) await remove(f);
 }
 
 function encryptMaps() {
+  // Encrypt known maps
   for (const f of MAP_FILES) {
     if (fs.existsSync(f)) {
       encryptFileSync(f);
@@ -123,6 +131,7 @@ function encryptMaps() {
     }
   }
 
+  // Encrypt any *.map
   for (const f of globSync("**/*.map")) {
     encryptFileSync(f);
     fs.removeSync(f);
@@ -132,6 +141,7 @@ function encryptMaps() {
 function decryptMaps() {
   let error = false;
 
+  // Decrypt known maps
   for (const f of MAP_FILES) {
     const enc = f + ".enc";
     if (fs.existsSync(enc)) {
@@ -143,6 +153,7 @@ function decryptMaps() {
     }
   }
 
+  // Decrypt any *.map.enc
   for (const f of globSync("**/*.map.enc")) {
     try {
       decryptFileSync(f, f.replace(".enc", ""));
@@ -157,27 +168,167 @@ function decryptMaps() {
   }
 }
 
+// ===============================================================
+// REVERSIBLE JSON + CSS MINIFY (SOURCE)
+// Applies to all PACK_CONFIG.folders, ignoring node_modules/dist/etc.
+// ===============================================================
+
+function getJsonAndCssSourceFiles() {
+  const ignore = [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.git/**"
+  ];
+
+  // Respect user ignore patterns
+  for (const ig of PACK_CONFIG.ignore) {
+    ignore.push(ig, `${ig}/**`);
+  }
+
+  const jsonFiles = [];
+  const cssFiles = [];
+
+  for (const folder of PACK_CONFIG.folders) {
+    const base = folder.replace(/\/+$/, "");
+    jsonFiles.push(
+      ...globSync(`${base}/**/*.json`, { ignore })
+    );
+    cssFiles.push(
+      ...globSync(`${base}/**/*.css`, { ignore })
+    );
+  }
+
+  return { jsonFiles, cssFiles };
+}
+
+// Simple CSS minifier (safe-ish, not crazy aggressive)
+function minifyCssString(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")      // strip /* comments */
+    .replace(/\s+/g, " ")                  // collapse whitespace
+    .replace(/\s*([{}:;,])\s*/g, "$1")     // trim around symbols
+    .replace(/;}/g, "}");                  // remove last ; before }
+}
+
+// Reversible JSON + CSS minify — called during PACK
+async function reversibleMinifyJsonAndCss() {
+  const { jsonFiles, cssFiles } = getJsonAndCssSourceFiles();
+
+  const jsonMap = {};
+  const cssMap = {};
+
+  // JSON: parse → stringify (canonical minified form)
+  for (const file of jsonFiles) {
+    try {
+      const original = fs.readFileSync(file, "utf8");
+      jsonMap[file] = original;
+
+      const data = JSON.parse(original);
+      fs.writeFileSync(file, JSON.stringify(data), "utf8");
+      console.log("Minified JSON (source):", file);
+    } catch (err) {
+      console.warn(`⚠ Skipping JSON (invalid?) ${file}:`, err.message);
+    }
+  }
+
+  // CSS: custom light-weight minifier
+  for (const file of cssFiles) {
+    try {
+      const original = fs.readFileSync(file, "utf8");
+      cssMap[file] = original;
+
+      const minified = minifyCssString(original);
+      fs.writeFileSync(file, minified, "utf8");
+      console.log("Minified CSS (source):", file);
+    } catch (err) {
+      console.warn(`⚠ Skipping CSS ${file}:`, err.message);
+    }
+  }
+
+  // Write maps only if there is something to track
+  if (Object.keys(jsonMap).length > 0) {
+    fs.writeFileSync("json-minify-map.json", JSON.stringify(jsonMap), "utf8");
+  }
+  if (Object.keys(cssMap).length > 0) {
+    fs.writeFileSync("css-minify-map.json", JSON.stringify(cssMap), "utf8");
+  }
+}
+
+// Restore JSON + CSS using recorded maps — called during UNPACK
+function restoreJsonAndCssFromMaps() {
+  // JSON restore
+  if (fs.existsSync("json-minify-map.json")) {
+    try {
+      const jsonMap = JSON.parse(fs.readFileSync("json-minify-map.json", "utf8"));
+      for (const [file, original] of Object.entries(jsonMap)) {
+        if (fs.existsSync(file)) {
+          fs.writeFileSync(file, original, "utf8");
+          console.log("Restored JSON (source):", file);
+        }
+      }
+    } catch (err) {
+      console.warn("⚠ Failed to restore some JSON files:", err.message);
+    }
+  }
+
+  // CSS restore
+  if (fs.existsSync("css-minify-map.json")) {
+    try {
+      const cssMap = JSON.parse(fs.readFileSync("css-minify-map.json", "utf8"));
+      for (const [file, original] of Object.entries(cssMap)) {
+        if (fs.existsSync(file)) {
+          fs.writeFileSync(file, original, "utf8");
+          console.log("Restored CSS (source):", file);
+        }
+      }
+    } catch (err) {
+      console.warn("⚠ Failed to restore some CSS files:", err.message);
+    }
+  }
+}
+
+// ===============================================================
 // Full reversible PACK pipeline (source)
+// ===============================================================
 async function runPackPipeline() {
   console.log("🔒 Running PACK (source)…");
   const env = buildGlobEnv();
 
+  // Clean old maps (JS + JSON + CSS)
   await clearMaps();
+
+  // JS: obfuscate + minify (unchanged behavior)
   await run("npm", ["run", "obfuscate"], env);
   await run("npm", ["run", "minify"], env);
+
+  // JSON + CSS: reversible minify-only
+  await reversibleMinifyJsonAndCss();
+
+  // Encrypt all map artifacts
   encryptMaps();
 
   console.log("✔ Pack complete");
 }
 
+// ===============================================================
 // Full reversible UNPACK pipeline (source)
+// ===============================================================
 async function runUnpackPipeline() {
   console.log("🔓 Running UNPACK (source)…");
   const env = buildGlobEnv();
 
+  // Decrypt maps first (JS + JSON + CSS)
   decryptMaps();
+
+  // Restore JSON + CSS BEFORE JS deminify/deobfuscate
+  restoreJsonAndCssFromMaps();
+
+  // JS: deminify + deobfuscate (unchanged behavior)
   await run("npm", ["run", "deminify"], env);
   await run("npm", ["run", "deobfuscate"], env);
+
+  // Clean maps again
   await clearMaps();
 
   console.log("✔ Unpack complete");
@@ -254,12 +405,16 @@ async function minifyDist(jsFiles) {
   }
 }
 
-// MINIFY JSON (dist)
+// MINIFY JSON (dist, one-way)
 function minifyJSONFiles(jsonFiles) {
   for (const file of jsonFiles) {
-    const data = JSON.parse(fs.readFileSync(file, "utf8"));
-    fs.writeFileSync(file, JSON.stringify(data));
-    console.log("Minified JSON (dist):", file);
+    try {
+      const data = JSON.parse(fs.readFileSync(file, "utf8"));
+      fs.writeFileSync(file, JSON.stringify(data), "utf8");
+      console.log("Minified JSON (dist):", file);
+    } catch (err) {
+      console.warn(`⚠ Skipping dist JSON (invalid?) ${file}:`, err.message);
+    }
   }
 }
 

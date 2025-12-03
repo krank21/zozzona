@@ -27,7 +27,7 @@ Protect your real source code while keeping your workflow completely seamless.
 | 👉 [HOOKS](./docs/HOOKS.md) | Details on Husky automation and custom workflows |
 | 👉 [CICD](./docs/CICD.md) | How to integrate Zozzona into CI/CD pipelines |
 | 👉 [INTEGRATIONS](./docs/INTEGRATIONS.md) | Using Zozzona with React, Node, monorepos, build tools, etc. |
-| 👉 [SECURITY](./docs/SECURITY.md) | Encryption model, MAP_KEY handling, threat considerations |
+| 👉 [SECURITY](./docs/SECURITY.md) | Encryption model, `MAP_KEY` handling, threat considerations |
 | 👉 [SECURE_PUBLISHING](./docs/SECURE_PUBLISHING.md) | How to publish obfuscated packages safely |
 | 👉 [INTERNALS](./docs/INTERNALS.md) | Deep dive into maps, transforms, encryption layers |
 | 👉 [ROADMAP](./docs/ROADMAP.md) | Planned features and future development |
@@ -48,6 +48,7 @@ It provides:
 - **Automatic Husky Git workflow integration**
 - **Fully CI/CD-safe builds**
 - **Zero workflow disruption**
+- **Optional irreversible production build hardening (`pack:dist`)**
 
 Your **real editable source code never leaves your machine**—only the protected version is committed or deployed.
 
@@ -109,6 +110,9 @@ Select protected folders, files, ignore patterns, and build order.
 ### ✔ **Filesystem Stable**  
 Paths and structure remain unchanged—only content is transformed.
 
+### ✔ **Dist Build Protection (`pack:dist`)**  
+Harden production builds by obfuscating, minifying, and encrypting maps inside `dist/`.
+
 ---
 
 # 🆚 Comparison With Other Tools
@@ -133,15 +137,15 @@ Zozzona is the only tool designed specifically to be **secure, reversible, moder
 
 # 📥 Install
 
-```bash
+\`\`\`bash
 npm install @zozzona/js
-```
+\`\`\`
 
 Use the CLI:
 
-```bash
+\`\`\`bash
 npx zozzona
-```
+\`\`\`
 
 ---
 
@@ -152,6 +156,7 @@ npx zozzona
 | `zozzona init` | Sets up `.env`, creates `MAP_KEY`, configures Husky git hooks, creates `pack.config.json`, injects npm scripts |
 | `zozzona pack` | Obfuscate → Minify → Encrypt |
 | `zozzona unpack` | Decrypt → Restore → Deobfuscate |
+| `zozzona pack:dist` | Protect files inside `dist/` (obfuscate/minify/encrypt `*.map`) |
 | `zozzona version` | Show installed version |
 
 ---
@@ -160,9 +165,9 @@ npx zozzona
 
 ## **1. Initialize**
 
-```bash
+\`\`\`bash
 npx zozzona init
-```
+\`\`\`
 
 This will:
 
@@ -180,9 +185,9 @@ You do **not** need to install Husky manually.
 
 ## **2. Protect your code**
 
-```bash
+\`\`\`bash
 npx zozzona pack
-```
+\`\`\`
 
 This produces encrypted:
 
@@ -197,9 +202,9 @@ And fully secured obfuscated + minified source.
 
 ## **3. Restore your original source**
 
-```bash
+\`\`\`bash
 npx zozzona unpack
-```
+\`\`\`
 
 Fully reversible.
 
@@ -207,19 +212,46 @@ Your project returns exactly to its original state.
 
 ---
 
+## **4. Protect your production build (`pack:dist`)**
+
+\`\`\`bash
+npx zozzona pack:dist
+\`\`\`
+
+This will:
+
+- Obfuscate JavaScript inside `dist/`
+- Minify JS using Terser
+- Minify JSON
+- Encrypt and delete all `*.map` files
+- Show a live spinner during obfuscation
+- Apply irreversible build hardening for deployment
+
+Example integration:
+
+\`\`\`json
+{
+  "scripts": {
+    "build": "vite build && zozzona pack:dist"
+  }
+}
+\`\`\`
+
+---
+
 # 🔐 MAP_KEY & .env
 
 Zozzona generates a secure AES-256-GCM key:
 
-```
+\`\`\`
 MAP_KEY=BASE64_ENCODED_KEY
-```
+\`\`\`
 
 ### ⚠️ Required practices:
 
 - Add `.env` to `.gitignore`
 - Do **not** commit `.env`
-- Back up your MAP_KEY securely
+- Back up your `MAP_KEY` securely
 
 If you lose your key, you cannot decrypt and restore your files.
 
@@ -229,23 +261,23 @@ If you lose your key, you cannot decrypt and restore your files.
 
 Example minimal config:
 
-```json
+\`\`\`json
 {
   "folders": ["src"],
   "files": [],
   "ignore": ["node_modules", "dist"]
 }
-```
+\`\`\`
 
 Multi-folder example:
 
-```json
+\`\`\`json
 {
   "folders": ["src", "server", "templates"],
   "files": ["server/package.json"],
   "ignore": ["dist", "public"]
 }
-```
+\`\`\`
 
 ---
 
@@ -254,14 +286,14 @@ Multi-folder example:
 Zozzona installs:
 
 ### `.husky/pre-commit`
-```bash
+\`\`\`bash
 npx zozzona pack
-```
+\`\`\`
 
 ### `.husky/post-commit`
-```bash
+\`\`\`bash
 npx zozzona unpack
-```
+\`\`\`
 
 ### Resulting workflow:
 
@@ -279,17 +311,17 @@ You stay productive.
 
 1. You write real readable code  
 2. Commit:
-   ```bash
+   \`\`\`bash
    git commit -m "update"
-   ```
+   \`\`\`
 3. Husky triggers:
    - `zozzona pack`
    - `git add -A`
    - commit succeeds with protected code
 4. Husky restores your files via:
-   ```bash
+   \`\`\`bash
    zozzona unpack
-   ```
+   \`\`\`
 
 You continue editing real code.
 
@@ -310,28 +342,28 @@ It *does* provide the strongest reversible JS/TS source protection available.
 
 # 🛠 Advanced Usage
 
-Generate a new MAP_KEY:
+Generate a new `MAP_KEY`:
 
-```bash
+\`\`\`bash
 openssl rand -base64 32
-```
+\`\`\`
 
 Then:
 
-```bash
+\`\`\`bash
 zozzona unpack
 zozzona pack
-```
+\`\`\`
 
 ---
 
 # 🚢 Publishing Your Own Fork
 
-```bash
+\`\`\`bash
 npm login
 npm version patch
 npm publish --access public
-```
+\`\`\`
 
 ---
 

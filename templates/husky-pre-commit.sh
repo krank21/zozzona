@@ -9,3 +9,6 @@ export PATH="$NODE_PATH:/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 echo "🔒 Packing before commit..."
 npm run pack || exit 1
+
+echo "📝 Staging protected files..."
+git add -A

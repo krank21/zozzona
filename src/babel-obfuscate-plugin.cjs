@@ -1,23 +1,48 @@
-// Simple reversible obfuscation plugin for dist builds
-// Generates short identifier names but does NOT track mapping.
-// Dist obfuscation is one-way.
-
 module.exports = function () {
+  const RESERVED = new Set([
+    "default",
+    "export",
+    "import",
+    "require",
+    "module",
+    "exports",
+    "__dirname",
+    "__filename"
+  ]);
+
   return {
     visitor: {
       Identifier(path) {
-        // Skip special cases
-        if (path.node.name.startsWith("_zozz_")) return;
-        if (path.node.name === "require") return;
-        if (path.node.name === "module") return;
-        if (path.node.name === "__dirname") return;
-        if (path.node.name === "__filename") return;
+        const name = path.node.name;
 
-        // Generate randomized short names
+        // Skip reserved
+        if (RESERVED.has(name)) return;
+
+        // Skip export default
+        if (
+          path.parent.type === "ExportDefaultDeclaration" ||
+          path.parent.type === "ExportNamedDeclaration"
+        ) {
+          return;
+        }
+
+        // Skip import specifiers
+        if (path.parent.type === "ImportSpecifier" ||
+            path.parent.type === "ImportDefaultSpecifier" ||
+            path.parent.type === "ImportNamespaceSpecifier") {
+          return;
+        }
+
+        // Skip keys in ObjectExpression: { default: value }
+        if (path.parent.type === "ObjectProperty" &&
+            path.parent.key === path.node) {
+          return;
+        }
+
         const newName =
           "_zozz_" + Math.random().toString(36).substring(2, 8);
 
-        path.scope.rename(path.node.name, newName);
+        path.scope.rename(name, newName);
       }
     }
   };

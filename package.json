@@ -1,6 +1,6 @@
 {
   "name": "@zozzona/js",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "Advanced source protection toolkit (obfuscate → minify → encrypt) with reversible unpacking and git-safe automation.",
   "type": "module",
   "license": "MIT",

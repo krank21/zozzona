@@ -1,158 +1,119 @@
 #!/usr/bin/env node
+/**
+ * Reversible JS Minifier for Zozzona
+ * - Respects PACK_INCLUDE / PACK_IGNORE from runner.js
+ * - Parses TS/JSX with Babel
+ * - Minifies via Terser
+ */
 
 import fs from "fs-extra";
 import path from "path";
-import { sync as globSync } from "glob";
+import { glob } from "glob";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
 
-// Terser is ESM; we'll import it lazily inside async functions
-let terser = null;
-async function getTerser() {
-  if (!terser) {
-    const mod = await import("terser");
-    terser = mod;
-  }
-  return terser;
+/* ------------------------------------------------------------------
+   Load PACK_INCLUDE and PACK_IGNORE from environment
+------------------------------------------------------------------ */
+function resolvePatterns() {
+  const include = process.env.PACK_INCLUDE
+    ? process.env.PACK_INCLUDE.split(",").filter(Boolean)
+    : [];
+
+  const ignore = process.env.PACK_IGNORE
+    ? process.env.PACK_IGNORE.split(",").filter(Boolean)
+    : [];
+
+  return { include, ignore };
 }
 
-const MODE = process.argv[2] || "minify";
+const { include: INCLUDE, ignore: IGNORE } = resolvePatterns();
 
-const MINIFY_MAP_FILE = "minify-map.json";
-const NAME_CACHE_FILE = "terser-name-cache.json";
+/* ------------------------------------------------------------------
+   Babel Parser (same config as obfuscation)
+------------------------------------------------------------------ */
+const parser = require("@babel/parser");
+const traversePkg = require("@babel/traverse");
+const traverse = traversePkg.default || traversePkg;
 
-// ---------------------------------------------------------------------
-// Utility: resolve files from PACK_INCLUDE / PACK_IGNORE
-// ---------------------------------------------------------------------
-function getTargetFilesFromEnv() {
-  const includeEnv = process.env.PACK_INCLUDE || "";
-  const ignoreEnv = process.env.PACK_IGNORE || "";
+function parse(code, filename) {
+  const isTS = filename.endsWith(".ts") || filename.endsWith(".tsx");
 
-  const includePatterns = includeEnv
-    .split(",")
-    .map(s => s.trim())
-    .filter(Boolean);
+  return parser.parse(code, {
+    sourceType: "unambiguous",
+    plugins: [
+      "jsx",
+      isTS ? "typescript" : null,
+      "classProperties",
+      "optionalChaining",
+      "nullishCoalescingOperator",
+      "objectRestSpread",
+      "decorators-legacy"
+    ].filter(Boolean)
+  });
+}
 
-  const ignorePatterns = ignoreEnv
-    .split(",")
-    .map(s => s.trim())
-    .filter(Boolean);
+/* ------------------------------------------------------------------
+   Resolve all JS files eligible for minification
+------------------------------------------------------------------ */
+async function getJsFiles() {
+  if (INCLUDE.length === 0) return [];
 
-  const files = new Set();
+  const files = await glob(INCLUDE.length === 1 ? INCLUDE[0] : `{${INCLUDE.join(",")}}`, {
+    nodir: true,
+    ignore: [
+      ...IGNORE,
+      "**/*.json",
+      "**/*.css",
+      "**/node_modules/**"
+    ]
+  });
 
-  for (const pattern of includePatterns) {
-    const matches = globSync(pattern, {
-      ignore: ignorePatterns,
-      nodir: true
+  return files.filter(f => /\.(js|jsx|ts|tsx)$/.test(f));
+}
+
+/* ------------------------------------------------------------------
+   MINIFICATION (Terser)
+------------------------------------------------------------------ */
+const terser = require("terser");
+
+async function minifyFile(file) {
+  const code = await fs.readFile(file, "utf8");
+
+  try {
+    const result = await terser.minify(code, {
+      compress: true,
+      mangle: true,
+      sourceMap: false,
+      ecma: 2020
     });
 
-    for (const f of matches) {
-      // Only JS/TS-like files here; JSON/CSS handled by runner separately
-      if (/\.(js|jsx|ts|tsx)$/.test(f)) {
-        files.add(f);
-      }
+    if (!result.code) {
+      console.warn(`⚠ Terser produced empty output for ${file}`);
+      return;
     }
-  }
 
-  return Array.from(files);
+    await fs.writeFile(file, result.code, "utf8");
+    console.log(`Minified ${file}`);
+  } catch (err) {
+    console.warn(`⚠ Minification failed for ${file}: ${err.message}`);
+  }
 }
 
-// ---------------------------------------------------------------------
-// MINIFY MODE: run by `npm run minify`
-// ---------------------------------------------------------------------
-async function runMinify() {
-  const files = getTargetFilesFromEnv();
+/* ------------------------------------------------------------------
+   MAIN
+------------------------------------------------------------------ */
+async function main() {
+  const files = await getJsFiles();
+
   if (files.length === 0) {
     console.log("ℹ No JS/TS files matched for minification.");
     return;
   }
 
-  const { minify } = await getTerser();
-
-  // Map of file → originalSource (for reversible deminify)
-  const originalMap = {};
-
-  // optional name cache for Terser
-  let nameCache = {};
-  if (fs.existsSync(NAME_CACHE_FILE)) {
-    try {
-      nameCache = JSON.parse(fs.readFileSync(NAME_CACHE_FILE, "utf8"));
-    } catch {
-      nameCache = {};
-    }
-  }
-
   for (const file of files) {
-    const code = fs.readFileSync(file, "utf8");
-    originalMap[file] = code;
-
-    const result = await minify(code, {
-      compress: true,
-      mangle: {
-        toplevel: true,
-        properties: false
-      },
-      nameCache
-    });
-
-    if (!result.code) {
-      console.warn(`⚠ Skipping (no minified output) ${file}`);
-      continue;
-    }
-
-    // Update nameCache from Terser result
-    if (result.nameCache) {
-      nameCache = result.nameCache;
-    }
-
-    fs.writeFileSync(file, result.code, "utf8");
-    console.log("Minified", file);
-  }
-
-  // Write reversible map
-  fs.writeFileSync(MINIFY_MAP_FILE, JSON.stringify(originalMap), "utf8");
-
-  // Persist name cache if any
-  if (Object.keys(nameCache).length > 0) {
-    fs.writeFileSync(NAME_CACHE_FILE, JSON.stringify(nameCache), "utf8");
+    await minifyFile(file);
   }
 }
 
-// ---------------------------------------------------------------------
-// RESTORE MODE: run by `npm run deminify`
-// ---------------------------------------------------------------------
-async function runRestore() {
-  if (!fs.existsSync(MINIFY_MAP_FILE)) {
-    console.log("ℹ No minify-map.json found. Nothing to restore.");
-    return;
-  }
-
-  let map;
-  try {
-    map = JSON.parse(fs.readFileSync(MINIFY_MAP_FILE, "utf8"));
-  } catch (err) {
-    console.error("❌ Failed to parse minify-map.json:", err.message);
-    process.exit(1);
-  }
-
-  for (const [file, original] of Object.entries(map)) {
-    if (fs.existsSync(file)) {
-      fs.writeFileSync(file, original, "utf8");
-      console.log("Restored", file);
-    } else {
-      console.warn(`⚠ Skipping restore, file missing: ${file}`);
-    }
-  }
-}
-
-// ---------------------------------------------------------------------
-// MAIN
-// ---------------------------------------------------------------------
-(async () => {
-  if (MODE === "minify") {
-    await runMinify();
-  } else if (MODE === "restore") {
-    await runRestore();
-  } else {
-    console.log("Usage: minify.js [minify|restore]");
-    process.exit(1);
-  }
-})();
+main();

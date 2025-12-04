@@ -1,157 +1,158 @@
 #!/usr/bin/env node
+
 import fs from "fs-extra";
 import path from "path";
-import { glob } from "glob";
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
+import { sync as globSync } from "glob";
 
-const terser = require("terser");
-const babel = require("@babel/core");
-
-const NAME_CACHE_FILE = "terser-name-cache.json";
-const MINIFY_MAP_FILE = "minify-map.json";
-
-// Build include/ignore
-function buildPattern() {
-  const inc = process.env.PACK_INCLUDE?.split(",") || [];
-  const ign = process.env.PACK_IGNORE?.split(",") || [];
-
-  process.env.MIN_IGNORE = ign.join(",");
-
-  if (inc.length === 1) return inc[0];
-  if (inc.length > 1) return `{${inc.join(",")}}`;
-
-  return "src/**/*.{js,jsx,ts,tsx}";
+// Terser is ESM; we'll import it lazily inside async functions
+let terser = null;
+async function getTerser() {
+  if (!terser) {
+    const mod = await import("terser");
+    terser = mod;
+  }
+  return terser;
 }
 
-const PATTERN = buildPattern();
+const MODE = process.argv[2] || "minify";
 
-async function readFiles() {
-  const ignore = [
-    "**/node_modules/**",
-    "**/*.min.js",
-    MINIFY_MAP_FILE
-  ];
+const MINIFY_MAP_FILE = "minify-map.json";
+const NAME_CACHE_FILE = "terser-name-cache.json";
 
-  if (process.env.MIN_IGNORE) {
-    ignore.push(...process.env.MIN_IGNORE.split(","));
+// ---------------------------------------------------------------------
+// Utility: resolve files from PACK_INCLUDE / PACK_IGNORE
+// ---------------------------------------------------------------------
+function getTargetFilesFromEnv() {
+  const includeEnv = process.env.PACK_INCLUDE || "";
+  const ignoreEnv = process.env.PACK_IGNORE || "";
+
+  const includePatterns = includeEnv
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const ignorePatterns = ignoreEnv
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const files = new Set();
+
+  for (const pattern of includePatterns) {
+    const matches = globSync(pattern, {
+      ignore: ignorePatterns,
+      nodir: true
+    });
+
+    for (const f of matches) {
+      // Only JS/TS-like files here; JSON/CSS handled by runner separately
+      if (/\.(js|jsx|ts|tsx)$/.test(f)) {
+        files.add(f);
+      }
+    }
   }
 
-  return await glob(PATTERN, { nodir: true, ignore });
+  return Array.from(files);
 }
 
-function encode(txt) { return Buffer.from(txt, "utf8").toString("base64"); }
-function decode(b64) { return Buffer.from(b64, "base64").toString("utf8"); }
+// ---------------------------------------------------------------------
+// MINIFY MODE: run by `npm run minify`
+// ---------------------------------------------------------------------
+async function runMinify() {
+  const files = getTargetFilesFromEnv();
+  if (files.length === 0) {
+    console.log("ℹ No JS/TS files matched for minification.");
+    return;
+  }
 
-// --- NEW JSX transform ---
-async function transformJSX(input, filename) {
-  const isJSX = filename.endsWith(".jsx") || filename.endsWith(".tsx");
+  const { minify } = await getTerser();
 
-  if (!isJSX) return input;
+  // Map of file → originalSource (for reversible deminify)
+  const originalMap = {};
 
-  const result = await babel.transformAsync(input, {
-    filename,
-    babelrc: false,
-    configFile: false,
-    presets: [
-      [
-        require("@babel/preset-react"),
-        { runtime: "automatic" }
-      ]
-    ],
-    plugins: [],
-    sourceMaps: false
-  });
-
-  return result.code;
-}
-
-// --- Minifier ---
-async function minify() {
-  const files = await readFiles();
-  if (!files.length) return;
-
-  const map = (await fs.pathExists(MINIFY_MAP_FILE))
-    ? await fs.readJson(MINIFY_MAP_FILE)
-    : {};
-
-  const nameCache = (await fs.pathExists(NAME_CACHE_FILE))
-    ? await fs.readJson(NAME_CACHE_FILE)
-    : { vars: { props: {} } };
+  // optional name cache for Terser
+  let nameCache = {};
+  if (fs.existsSync(NAME_CACHE_FILE)) {
+    try {
+      nameCache = JSON.parse(fs.readFileSync(NAME_CACHE_FILE, "utf8"));
+    } catch {
+      nameCache = {};
+    }
+  }
 
   for (const file of files) {
-    const abs = path.resolve(file);
-    let original = await fs.readFile(abs, "utf8");
+    const code = fs.readFileSync(file, "utf8");
+    originalMap[file] = code;
 
-    // JSX transform pre-step
-    const jsCode = await transformJSX(original, file);
+    const result = await minify(code, {
+      compress: true,
+      mangle: {
+        toplevel: true,
+        properties: false
+      },
+      nameCache
+    });
 
-    const origHash = encode(original).slice(0, 16);
-    if (map[file]?.origHash === origHash) continue;
-
-    const res = await terser.minify(
-      { [path.basename(file)]: jsCode },
-      {
-        compress: true,
-        mangle: { toplevel: false },
-        format: { comments: false },
-        sourceMap: {
-          filename: path.basename(file),
-          url: path.basename(file) + ".map"
-        },
-        nameCache
-      }
-    );
-
-    if (!res.code) continue;
-
-    map[file] = {
-      original_b64: encode(original),
-      origHash,
-      minified_at: new Date().toISOString()
-    };
-
-    const clean = res.code.replace(/\/\/# sourceMappingURL=.*\n?/g, "");
-    await fs.writeFile(abs, clean, "utf8");
-
-    if (res.map) {
-      await fs.writeFile(
-        abs + ".map",
-        typeof res.map === "string" ? res.map : JSON.stringify(res.map)
-      );
+    if (!result.code) {
+      console.warn(`⚠ Skipping (no minified output) ${file}`);
+      continue;
     }
 
+    // Update nameCache from Terser result
+    if (result.nameCache) {
+      nameCache = result.nameCache;
+    }
+
+    fs.writeFileSync(file, result.code, "utf8");
     console.log("Minified", file);
   }
 
-  await fs.writeJson(MINIFY_MAP_FILE, map, { spaces: 2 });
-  await fs.writeJson(NAME_CACHE_FILE, nameCache, { spaces: 2 });
-}
+  // Write reversible map
+  fs.writeFileSync(MINIFY_MAP_FILE, JSON.stringify(originalMap), "utf8");
 
-// --- Restore originals ---
-async function restore() {
-  if (!await fs.pathExists(MINIFY_MAP_FILE)) return;
-
-  const map = await fs.readJson(MINIFY_MAP_FILE);
-
-  for (const file of Object.keys(map)) {
-    const abs = path.resolve(file);
-    const original = decode(map[file].original_b64);
-
-    await fs.mkdirp(path.dirname(abs));
-    await fs.writeFile(abs, original, "utf8");
-
-    const m = abs + ".map";
-    if (await fs.pathExists(m)) await fs.remove(m);
-
-    console.log("Restored", file);
+  // Persist name cache if any
+  if (Object.keys(nameCache).length > 0) {
+    fs.writeFileSync(NAME_CACHE_FILE, JSON.stringify(nameCache), "utf8");
   }
 }
 
-(async () => {
-  const cmd = process.argv[2];
+// ---------------------------------------------------------------------
+// RESTORE MODE: run by `npm run deminify`
+// ---------------------------------------------------------------------
+async function runRestore() {
+  if (!fs.existsSync(MINIFY_MAP_FILE)) {
+    console.log("ℹ No minify-map.json found. Nothing to restore.");
+    return;
+  }
 
-  if (cmd === "minify") await minify();
-  else if (cmd === "restore" || cmd === "deminify") await restore();
-  else console.log("Usage: minify.js [minify|restore]");
+  let map;
+  try {
+    map = JSON.parse(fs.readFileSync(MINIFY_MAP_FILE, "utf8"));
+  } catch (err) {
+    console.error("❌ Failed to parse minify-map.json:", err.message);
+    process.exit(1);
+  }
+
+  for (const [file, original] of Object.entries(map)) {
+    if (fs.existsSync(file)) {
+      fs.writeFileSync(file, original, "utf8");
+      console.log("Restored", file);
+    } else {
+      console.warn(`⚠ Skipping restore, file missing: ${file}`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
+// MAIN
+// ---------------------------------------------------------------------
+(async () => {
+  if (MODE === "minify") {
+    await runMinify();
+  } else if (MODE === "restore") {
+    await runRestore();
+  } else {
+    console.log("Usage: minify.js [minify|restore]");
+    process.exit(1);
+  }
 })();

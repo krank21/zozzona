@@ -20,6 +20,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Safe obfuscation plugin that preserves imports/exports/Node globals
 const OBFUSCATE_PLUGIN = path.join(__dirname, "babel-obfuscate-plugin.cjs");
 
 dotenv.config();
@@ -30,43 +31,50 @@ if (!process.env.MAP_KEY) {
 
 const PACK_CONFIG = loadPackConfig();
 
-/* ---------------------------------------------------------------
-   UTF-8 BOM CLEANING HELPERS
---------------------------------------------------------------- */
-function stripBOM(str) {
-  return str.replace(/^\uFEFF/, "");
-}
+// ===============================================================
+// AUTO-FIX PACKAGE.JSON SCRIPTS (critical fix for deminify)
+// ===============================================================
+function ensureCorrectScripts() {
+  const pkgPath = path.resolve("package.json");
+  if (!fs.existsSync(pkgPath)) return;
 
-async function scrubBOMs() {
-  const folders = PACK_CONFIG.folders || [];
-  const filesList = PACK_CONFIG.files || [];
-
-  let targets = [];
-
-  for (const folder of folders) {
-    targets.push(...globSync(`${folder}/**/*.{js,jsx,ts,tsx,json,css}`));
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+  } catch {
+    console.warn("⚠ package.json unreadable — skipping script repair");
+    return;
   }
 
-  for (const file of filesList) {
-    if (fs.existsSync(file)) targets.push(file);
-  }
+  pkg.scripts = pkg.scripts || {};
 
-  for (const file of targets) {
-    try {
-      let content = fs.readFileSync(file, "utf8");
-      const cleaned = stripBOM(content);
-      if (cleaned !== content) {
-        fs.writeFileSync(file, cleaned, "utf8");
-        console.log(`🧹 Removed BOM → ${file}`);
-      }
-    } catch (err) {
-      console.warn(`⚠ BOM scrub failed for ${file}: ${err.message}`);
+  const expected = {
+    obfuscate: "node node_modules/@zozzona/js/src/obfuscate.js obfuscate",
+    deobfuscate: "node node_modules/@zozzona/js/src/obfuscate.js deobfuscate",
+    minify: "node node_modules/@zozzona/js/src/minify.js minify",
+    deminify: "node node_modules/@zozzona/js/src/minify.js deminify"
+  };
+
+  let changed = false;
+
+  for (const [script, cmd] of Object.entries(expected)) {
+    if (pkg.scripts[script] !== cmd) {
+      pkg.scripts[script] = cmd;
+      changed = true;
     }
   }
+
+  if (changed) {
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+    console.log("🔧 Auto-fixed zozzona scripts in package.json");
+  }
 }
 
+// Run immediately
+ensureCorrectScripts();
+
 // ===============================================================
-// SHARED HELPER
+// SHARED HELPER: run external commands (npm scripts)
 // ===============================================================
 async function run(cmd, args = [], env = {}) {
   return new Promise((resolve, reject) => {
@@ -80,16 +88,25 @@ async function run(cmd, args = [], env = {}) {
 }
 
 // ===============================================================
-// JS PATTERN BUILDERS
+// ORIGINAL REVERSIBLE SOURCE PIPELINE (pack / unpack, JS only)
 // ===============================================================
+
+// Build **only JS-related** include patterns
 function buildIncludePatterns() {
   const patterns = [];
 
-  for (const folder of PACK_CONFIG.folders)
+  for (const folder of PACK_CONFIG.folders) {
     patterns.push(`${folder}/**/*.{js,jsx,ts,tsx}`);
+    patterns.push(folder); // ensure folder is always included
+  }
 
-  for (const file of PACK_CONFIG.files)
-    if (/\.(js|jsx|ts|tsx)$/.test(file)) patterns.push(file);
+  for (const file of PACK_CONFIG.files) {
+    if (/\.(js|jsx|ts|tsx)$/.test(file)) {
+      patterns.push(file);
+    } else {
+      console.warn(`⚠ Skipping non-JS file in pack.config.json files[]: ${file}`);
+    }
+  }
 
   return patterns;
 }
@@ -97,15 +114,16 @@ function buildIncludePatterns() {
 function buildIgnorePatterns() {
   const ignore = [
     "**/*.json",
+    "**/*.css",
     "**/package.json",
     "**/package-lock.json",
-    "**/yarn.lock",
-    "**/pnpm-lock.yaml",
+    "**/*.map",
     "**/node_modules/**"
   ];
 
-  for (const ig of PACK_CONFIG.ignore)
+  for (const ig of PACK_CONFIG.ignore) {
     ignore.push(ig, `${ig}/**`);
+  }
 
   return ignore;
 }
@@ -118,7 +136,7 @@ function buildGlobEnv() {
 }
 
 // ===============================================================
-// MAP HANDLING
+// MAP FILES
 // ===============================================================
 const MAP_FILES = [
   "minify-map.json",
@@ -137,6 +155,7 @@ async function clearMaps() {
     await remove(f);
     await remove(f + ".enc");
   }
+
   for (const f of globSync("**/*.map")) await remove(f);
   for (const f of globSync("**/*.map.enc")) await remove(f);
 }
@@ -148,6 +167,7 @@ function encryptMaps() {
       fs.removeSync(f);
     }
   }
+
   for (const f of globSync("**/*.map")) {
     encryptFileSync(f);
     fs.removeSync(f);
@@ -160,18 +180,24 @@ function decryptMaps() {
   for (const f of MAP_FILES) {
     const enc = f + ".enc";
     if (fs.existsSync(enc)) {
-      try { decryptFileSync(enc, f); }
-      catch { error = true; }
+      try {
+        decryptFileSync(enc, f);
+      } catch {
+        error = true;
+      }
     }
   }
 
   for (const f of globSync("**/*.map.enc")) {
-    try { decryptFileSync(f, f.replace(".enc", "")); }
-    catch { error = true; }
+    try {
+      decryptFileSync(f, f.replace(".enc", ""));
+    } catch {
+      error = true;
+    }
   }
 
   if (error) {
-    console.error("❌ Decryption failed — bad MAP_KEY?");
+    console.error("❌ Decryption failed. Bad MAP_KEY?");
     process.exit(1);
   }
 }
@@ -183,14 +209,15 @@ function getJsonAndCssSourceFiles() {
   const ignore = [
     "**/node_modules/**",
     "**/dist/**",
-    "**/build/**",
     "**/.git/**"
   ];
 
-  for (const ig of PACK_CONFIG.ignore) ignore.push(ig, `${ig}/**`);
+  for (const ig of PACK_CONFIG.ignore) {
+    ignore.push(ig, `${ig}/**`);
+  }
 
-  let jsonFiles = [];
-  let cssFiles = [];
+  const jsonFiles = [];
+  const cssFiles = [];
 
   for (const folder of PACK_CONFIG.folders) {
     const base = folder.replace(/\/+$/, "");
@@ -219,10 +246,12 @@ async function reversibleMinifyJsonAndCss() {
     try {
       const original = fs.readFileSync(file, "utf8");
       jsonMap[file] = original;
-      const data = JSON.parse(original);
-      fs.writeFileSync(file, JSON.stringify(data), "utf8");
+      const parsed = JSON.parse(original);
+      fs.writeFileSync(file, JSON.stringify(parsed), "utf8");
       console.log("Minified JSON:", file);
-    } catch {}
+    } catch (err) {
+      console.warn("⚠ Invalid JSON:", file);
+    }
   }
 
   for (const file of cssFiles) {
@@ -231,24 +260,37 @@ async function reversibleMinifyJsonAndCss() {
       cssMap[file] = original;
       fs.writeFileSync(file, minifyCssString(original), "utf8");
       console.log("Minified CSS:", file);
-    } catch {}
+    } catch (err) {
+      console.warn("⚠ CSS error:", file);
+    }
   }
 
-  if (Object.keys(jsonMap).length) fs.writeFileSync("json-minify-map.json", JSON.stringify(jsonMap));
-  if (Object.keys(cssMap).length) fs.writeFileSync("css-minify-map.json", JSON.stringify(cssMap));
+  if (Object.keys(jsonMap).length)
+    fs.writeFileSync("json-minify-map.json", JSON.stringify(jsonMap), "utf8");
+
+  if (Object.keys(cssMap).length)
+    fs.writeFileSync("css-minify-map.json", JSON.stringify(cssMap), "utf8");
 }
 
 function restoreJsonAndCssFromMaps() {
   if (fs.existsSync("json-minify-map.json")) {
-    const jsonMap = JSON.parse(fs.readFileSync("json-minify-map.json", "utf8"));
-    for (const [file, original] of Object.entries(jsonMap))
-      if (fs.existsSync(file)) fs.writeFileSync(file, original);
+    const map = JSON.parse(fs.readFileSync("json-minify-map.json", "utf8"));
+    for (const [file, original] of Object.entries(map)) {
+      if (fs.existsSync(file)) {
+        fs.writeFileSync(file, original, "utf8");
+        console.log("Restored JSON:", file);
+      }
+    }
   }
 
   if (fs.existsSync("css-minify-map.json")) {
-    const cssMap = JSON.parse(fs.readFileSync("css-minify-map.json", "utf8"));
-    for (const [file, original] of Object.entries(cssMap))
-      if (fs.existsSync(file)) fs.writeFileSync(file, original);
+    const map = JSON.parse(fs.readFileSync("css-minify-map.json", "utf8"));
+    for (const [file, original] of Object.entries(map)) {
+      if (fs.existsSync(file)) {
+        fs.writeFileSync(file, original, "utf8");
+        console.log("Restored CSS:", file);
+      }
+    }
   }
 }
 
@@ -257,15 +299,16 @@ function restoreJsonAndCssFromMaps() {
 // ===============================================================
 async function runPackPipeline() {
   console.log("🔒 Running PACK (source)…");
+
   const env = buildGlobEnv();
 
-  await scrubBOMs();   // <-- NEW
-
   await clearMaps();
+
   await run("npm", ["run", "obfuscate"], env);
   await run("npm", ["run", "minify"], env);
 
   await reversibleMinifyJsonAndCss();
+
   encryptMaps();
 
   console.log("✔ Pack complete");
@@ -276,11 +319,11 @@ async function runPackPipeline() {
 // ===============================================================
 async function runUnpackPipeline() {
   console.log("🔓 Running UNPACK (source)…");
+
   const env = buildGlobEnv();
 
-  await scrubBOMs();   // <-- NEW
-
   decryptMaps();
+
   restoreJsonAndCssFromMaps();
 
   await run("npm", ["run", "deminify"], env);
@@ -292,7 +335,7 @@ async function runUnpackPipeline() {
 }
 
 // ===============================================================
-// DIST
+// DIST PIPELINE (unchanged from your original version)
 // ===============================================================
 const DIST_ROOT = "server/client/dist";
 
@@ -312,15 +355,34 @@ async function obfuscateDist(jsFiles) {
   const babel = (await import("@babel/core")).default;
 
   for (const file of jsFiles) {
-    const source = fs.readFileSync(file, "utf8");
+    const start = Date.now();
+    console.log(`\n⚙️  Obfuscating (dist): ${file}`);
 
-    const { code } = await babel.transformAsync(source, {
-      plugins: [[OBFUSCATE_PLUGIN, {}]],
-      sourceMaps: false
-    });
+    const frames = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+    let i = 0;
+    let spinning = true;
 
-    fs.writeFileSync(file, code);
-    console.log("Obfuscated (dist):", file);
+    const spinner = setInterval(() => {
+      if (!spinning) return;
+      process.stdout.write(`\r${frames[i++ % frames.length]} Working...   `);
+    }, 80);
+
+    try {
+      const src = fs.readFileSync(file, "utf8");
+      const { code } = await babel.transformAsync(src, {
+        plugins: [[OBFUSCATE_PLUGIN, {}]],
+        sourceMaps: false
+      });
+
+      fs.writeFileSync(file, code, "utf8");
+    } finally {
+      spinning = false;
+      clearInterval(spinner);
+      process.stdout.write("\r                         \r");
+
+      const secs = ((Date.now() - start) / 1000).toFixed(2);
+      console.log(`✔ Obfuscated in ${secs}s`);
+    }
   }
 }
 
@@ -329,8 +391,8 @@ async function minifyDist(jsFiles) {
 
   for (const file of jsFiles) {
     const code = fs.readFileSync(file, "utf8");
-    const out = await terser.minify(code, { compress: true, mangle: true });
-    fs.writeFileSync(file, out.code);
+    const result = await terser.minify(code, { compress: true, mangle: true });
+    fs.writeFileSync(file, result.code, "utf8");
     console.log("Minified (dist):", file);
   }
 }
@@ -338,8 +400,8 @@ async function minifyDist(jsFiles) {
 function minifyJSONFiles(jsonFiles) {
   for (const file of jsonFiles) {
     try {
-      const data = JSON.parse(fs.readFileSync(file));
-      fs.writeFileSync(file, JSON.stringify(data));
+      const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+      fs.writeFileSync(file, JSON.stringify(parsed), "utf8");
       console.log("Minified JSON (dist):", file);
     } catch {}
   }
@@ -360,10 +422,14 @@ async function runDistPipeline() {
   const json = getDistJSONFiles();
   const maps = getDistMapFiles();
 
+  if (js.length === 0 && json.length === 0) {
+    console.log("ℹ No dist files found.");
+    return;
+  }
+
   await obfuscateDist(js);
   await minifyDist(js);
   minifyJSONFiles(json);
-
   encryptDistMaps(maps);
 
   console.log("✔ dist pack complete");

@@ -15,10 +15,12 @@ import { loadPackConfig } from "./config.js";
 import { fileURLToPath } from "url";
 
 // ---------------------------------------------------------------
-// Resolve THIS package root
+// Resolve THIS package root + safe obfuscation plugin
 // ---------------------------------------------------------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Safe obfuscation plugin that preserves imports/exports/Node globals
 const OBFUSCATE_PLUGIN = path.join(__dirname, "babel-obfuscate-plugin.cjs");
 
 dotenv.config();
@@ -55,6 +57,7 @@ function buildIncludePatterns() {
     patterns.push(`${folder}/**/*.{js,jsx,ts,tsx}`);
   }
 
+  // Only allow JS files in files[] (skip JSON / CSS etc.)
   for (const file of PACK_CONFIG.files) {
     if (/\.(js|jsx|ts|tsx)$/.test(file)) {
       patterns.push(file);
@@ -110,16 +113,19 @@ async function remove(file) {
 }
 
 async function clearMaps() {
+  // Known maps (.json + .json.enc)
   for (const f of MAP_FILES) {
     await remove(f);
     await remove(f + ".enc");
   }
 
+  // Any stray *.map / *.map.enc
   for (const f of globSync("**/*.map")) await remove(f);
   for (const f of globSync("**/*.map.enc")) await remove(f);
 }
 
 function encryptMaps() {
+  // Encrypt known maps
   for (const f of MAP_FILES) {
     if (fs.existsSync(f)) {
       encryptFileSync(f);
@@ -127,6 +133,7 @@ function encryptMaps() {
     }
   }
 
+  // Encrypt any *.map (source maps, etc.)
   for (const f of globSync("**/*.map")) {
     encryptFileSync(f);
     fs.removeSync(f);
@@ -136,6 +143,7 @@ function encryptMaps() {
 function decryptMaps() {
   let error = false;
 
+  // Decrypt known maps
   for (const f of MAP_FILES) {
     const enc = f + ".enc";
     if (fs.existsSync(enc)) {
@@ -147,6 +155,7 @@ function decryptMaps() {
     }
   }
 
+  // Decrypt any *.map.enc
   for (const f of globSync("**/*.map.enc")) {
     try {
       decryptFileSync(f, f.replace(".enc", ""));
@@ -173,6 +182,7 @@ function getJsonAndCssSourceFiles() {
     "**/.git/**"
   ];
 
+  // Respect user ignore patterns
   for (const ig of PACK_CONFIG.ignore) {
     ignore.push(ig, `${ig}/**`);
   }
@@ -193,12 +203,13 @@ function getJsonAndCssSourceFiles() {
   return { jsonFiles, cssFiles };
 }
 
+// Simple CSS minifier (safe-ish, not aggressive)
 function minifyCssString(source) {
   return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\s+/g, " ")
-    .replace(/\s*([{}:;,])\s*/g, "$1")
-    .replace(/;}/g, "}");
+    .replace(/\/\*[\s\S]*?\*\//g, "")      // strip /* comments */
+    .replace(/\s+/g, " ")                  // collapse whitespace
+    .replace(/\s*([{}:;,])\s*/g, "$1")     // trim around symbols
+    .replace(/;}/g, "}");                  // remove last ; before }
 }
 
 async function reversibleMinifyJsonAndCss() {
@@ -207,6 +218,7 @@ async function reversibleMinifyJsonAndCss() {
   const jsonMap = {};
   const cssMap = {};
 
+  // JSON: parse → stringify (canonical minified form)
   for (const file of jsonFiles) {
     try {
       const original = fs.readFileSync(file, "utf8");
@@ -219,6 +231,7 @@ async function reversibleMinifyJsonAndCss() {
     }
   }
 
+  // CSS: custom light-weight minifier
   for (const file of cssFiles) {
     try {
       const original = fs.readFileSync(file, "utf8");
@@ -231,6 +244,7 @@ async function reversibleMinifyJsonAndCss() {
     }
   }
 
+  // Write maps only if there is something to track
   if (Object.keys(jsonMap).length > 0)
     fs.writeFileSync("json-minify-map.json", JSON.stringify(jsonMap), "utf8");
 
@@ -239,6 +253,7 @@ async function reversibleMinifyJsonAndCss() {
 }
 
 function restoreJsonAndCssFromMaps() {
+  // JSON restore
   if (fs.existsSync("json-minify-map.json")) {
     try {
       const jsonMap = JSON.parse(fs.readFileSync("json-minify-map.json", "utf8"));
@@ -253,6 +268,7 @@ function restoreJsonAndCssFromMaps() {
     }
   }
 
+  // CSS restore
   if (fs.existsSync("css-minify-map.json")) {
     try {
       const cssMap = JSON.parse(fs.readFileSync("css-minify-map.json", "utf8"));
@@ -275,11 +291,17 @@ async function runPackPipeline() {
   console.log("🔒 Running PACK (source)…");
   const env = buildGlobEnv();
 
+  // Clean old maps (JS + JSON + CSS)
   await clearMaps();
+
+  // JS: obfuscate + minify (using safe plugin)
   await run("npm", ["run", "obfuscate"], env);
   await run("npm", ["run", "minify"], env);
 
+  // JSON + CSS: reversible minify-only
   await reversibleMinifyJsonAndCss();
+
+  // Encrypt all map artifacts
   encryptMaps();
 
   console.log("✔ Pack complete");
@@ -292,12 +314,17 @@ async function runUnpackPipeline() {
   console.log("🔓 Running UNPACK (source)…");
   const env = buildGlobEnv();
 
+  // Decrypt maps first (JS + JSON + CSS)
   decryptMaps();
+
+  // Restore JSON + CSS BEFORE JS deminify/deobfuscate
   restoreJsonAndCssFromMaps();
 
+  // JS: deminify + deobfuscate (unchanged behavior)
   await run("npm", ["run", "deminify"], env);
   await run("npm", ["run", "deobfuscate"], env);
 
+  // Clean maps again
   await clearMaps();
 
   console.log("✔ Unpack complete");
@@ -320,6 +347,7 @@ function getDistMapFiles() {
   return globSync(`${DIST_ROOT}/**/*.map`).filter(f => !f.endsWith(".enc"));
 }
 
+// OBFUSCATE JS (dist) with spinner (uses same SAFE plugin)
 async function obfuscateDist(jsFiles) {
   const babel = (await import("@babel/core")).default;
 
@@ -356,6 +384,7 @@ async function obfuscateDist(jsFiles) {
   }
 }
 
+// MINIFY JS (dist)
 async function minifyDist(jsFiles) {
   const terser = await import("terser");
 
@@ -371,6 +400,7 @@ async function minifyDist(jsFiles) {
   }
 }
 
+// MINIFY JSON (dist, one-way)
 function minifyJSONFiles(jsonFiles) {
   for (const file of jsonFiles) {
     try {
@@ -383,6 +413,7 @@ function minifyJSONFiles(jsonFiles) {
   }
 }
 
+// ENCRYPT MAP FILES (dist-only, one-way)
 function encryptDistMaps(mapFiles) {
   for (const f of mapFiles) {
     encryptFileSync(f);
@@ -391,6 +422,7 @@ function encryptDistMaps(mapFiles) {
   }
 }
 
+// DIST PACK PIPELINE
 async function runDistPipeline() {
   console.log("📦 Running dist packing pipeline…");
 

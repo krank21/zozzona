@@ -5,6 +5,14 @@ import { glob } from 'glob';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 
+/* ----------------------------------------------------------
+   UTF-8 BOM REMOVAL
+---------------------------------------------------------- */
+function stripBOM(str) {
+  if (!str) return str;
+  return str.replace(/^\uFEFF/, "");
+}
+
 /* PACK_INCLUDE / PACK_IGNORE */
 function buildPatternFromEnv() {
   const inc = process.env.PACK_INCLUDE ? process.env.PACK_INCLUDE.split(',') : [];
@@ -32,8 +40,8 @@ const MAP_FILE = 'obfuscation-map.json';
 async function readAllFiles(globPattern) {
   const ignoreList = [
     "**/node_modules/**",
-    "**/*.json",          // ⬅ NEW
-    "**/package.json"     // ⬅ NEW
+    "**/*.json",
+    "**/package.json"
   ];
 
   if (process.env.OBF_IGNORE) {
@@ -66,9 +74,12 @@ const BLACKLIST = new Set([
 ]);
 
 const BASE62 = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-function toBase62(num){if(num===0)return'0';let s='';while(num>0){s=BASE62[num%62]+s;num=Math.floor(num/62);}return s;}
-function makeObfName(counter,prefix='_r'){return`${prefix}${toBase62(counter)}`;}
+function toBase62(num){ if(num===0) return '0'; let s=''; while(num>0){ s=BASE62[num%62]+s; num=Math.floor(num/62);} return s; }
+function makeObfName(counter,prefix='_r'){ return `${prefix}${toBase62(counter)}`; }
 
+/* ----------------------------------------------------------
+   OBFUSCATE
+---------------------------------------------------------- */
 async function obfuscate(globPattern = DEFAULT_GLOB, mapFile = MAP_FILE) {
   const files = await readAllFiles(globPattern);
   if (!files.length) { console.log(`No files matched: ${globPattern}`); return; }
@@ -85,7 +96,11 @@ async function obfuscate(globPattern = DEFAULT_GLOB, mapFile = MAP_FILE) {
 
   for (const file of files) {
     const abs = path.resolve(file);
-    const code = await fs.readFile(abs, 'utf8');
+
+    // ⭐ Strip BOM before parsing
+    let code = await fs.readFile(abs, 'utf8');
+    code = stripBOM(code);
+
     let ast;
     try { ast = parseCode(code, file); }
     catch (e) {
@@ -104,9 +119,9 @@ async function obfuscate(globPattern = DEFAULT_GLOB, mapFile = MAP_FILE) {
           catch (e) { console.warn(`Rename failed ${name} in ${file}`); }
         }
       },
-      ImportSpecifier(p){renameImportLike(p, genName);},
-      ImportDefaultSpecifier(p){renameImportLike(p, genName);},
-      ExportSpecifier(p){renameImportLike(p, genName);}
+      ImportSpecifier(p){ renameImportLike(p, genName); },
+      ImportDefaultSpecifier(p){ renameImportLike(p, genName); },
+      ExportSpecifier(p){ renameImportLike(p, genName); }
     });
 
     const out = generate(ast, { comments: true }, code).code;
@@ -124,6 +139,9 @@ function renameImportLike(path, genName){
   }
 }
 
+/* ----------------------------------------------------------
+   DEOBFUSCATE
+---------------------------------------------------------- */
 async function deobfuscate(globPattern = DEFAULT_GLOB, mapFile = MAP_FILE) {
   if (!await fs.pathExists(mapFile)) throw new Error(`${mapFile} missing`);
   const mapping = await fs.readJson(mapFile);
@@ -134,9 +152,13 @@ async function deobfuscate(globPattern = DEFAULT_GLOB, mapFile = MAP_FILE) {
 
   for (const file of files) {
     const abs = path.resolve(file);
-    const code = await fs.readFile(abs,'utf8');
+
+    // ⭐ Strip BOM before parsing
+    let code = await fs.readFile(abs, 'utf8');
+    code = stripBOM(code);
+
     let ast;
-    try { ast = parseCode(code,file); }
+    try { ast = parseCode(code, file); }
     catch (e){ console.warn(`Parse error ${file}`); continue; }
 
     traverse(ast, {
@@ -148,13 +170,13 @@ async function deobfuscate(globPattern = DEFAULT_GLOB, mapFile = MAP_FILE) {
           catch (e){ console.warn(`Failed rename ${name}`); }
         }
       },
-      ImportSpecifier(p){unrenameImportLike(p,inv);},
-      ImportDefaultSpecifier(p){unrenameImportLike(p,inv);},
-      ExportSpecifier(p){unrenameImportLike(p,inv);}
+      ImportSpecifier(p){ unrenameImportLike(p, inv); },
+      ImportDefaultSpecifier(p){ unrenameImportLike(p, inv); },
+      ExportSpecifier(p){ unrenameImportLike(p, inv); }
     });
 
-    const out = generate(ast,{comments:true},code).code;
-    await fs.writeFile(abs,out,'utf8');
+    const out = generate(ast, { comments: true }, code).code;
+    await fs.writeFile(abs, out, 'utf8');
     console.log(`Deobfuscated ${file}`);
   }
 }
@@ -164,6 +186,9 @@ function unrenameImportLike(path, inv){
   if (local && inv[local]) path.node.local.name = inv[local];
 }
 
+/* ----------------------------------------------------------
+   MAIN
+---------------------------------------------------------- */
 async function main() {
   const cmd = process.argv[2] || 'obfuscate';
 

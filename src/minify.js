@@ -1,14 +1,8 @@
 #!/usr/bin/env node
 /**
- * Zozzona reversible JS minifier (NOW JSX-SAFE)
- *
- * PACK:
- *   - Babel transforms JSX/TSX → pure JS
- *   - Terser minifies
- *   - Original source stored in minify-map.json
- *
- * UNPACK:
- *   - Restores original JS/JSX exactly as written
+ * Zozzona reversible JS minifier (BOM-safe)
+ * - PACK: minify JS and store original code in minify-map.json
+ * - UNPACK: restore original JS files using minify-map.json
  */
 
 import fs from "fs-extra";
@@ -17,13 +11,10 @@ import { glob } from "glob";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 
-const babel = require("@babel/core");
-const terser = require("terser");
-
 const MAP_FILE = "minify-map.json";
 
 /* ----------------------------------------------------------
-   Resolve PACK_INCLUDE and PACK_IGNORE
+   Resolve PACK_INCLUDE / PACK_IGNORE
 ---------------------------------------------------------- */
 function resolvePatterns() {
   const include = process.env.PACK_INCLUDE
@@ -40,13 +31,21 @@ function resolvePatterns() {
 const { include: INCLUDE, ignore: IGNORE } = resolvePatterns();
 
 /* ----------------------------------------------------------
+   Utility: Remove UTF-8 BOM if present
+---------------------------------------------------------- */
+function stripBOM(str) {
+  if (!str) return str;
+  // Remove BOM at start of string (EF BB BF)
+  return str.replace(/^\uFEFF/, "");
+}
+
+/* ----------------------------------------------------------
    GLOB: Collect JS/TS/JSX/TSX files
 ---------------------------------------------------------- */
 async function getJsFiles() {
   if (INCLUDE.length === 0) return [];
 
-  const patterns =
-    INCLUDE.length === 1 ? INCLUDE[0] : `{${INCLUDE.join(",")}}`;
+  const patterns = INCLUDE.length === 1 ? INCLUDE[0] : `{${INCLUDE.join(",")}}`;
 
   const files = await glob(patterns, {
     nodir: true,
@@ -58,58 +57,36 @@ async function getJsFiles() {
     ]
   });
 
-  return files.filter(f =>
-    /\.(js|jsx|ts|tsx)$/.test(f)
-  );
+  return files.filter(f => /\.(js|jsx|ts|tsx)$/.test(f));
 }
 
 /* ----------------------------------------------------------
-   Babel Transform JSX → JS
+   MINIFICATION (Terser)
 ---------------------------------------------------------- */
-async function transformWithBabel(code, filename) {
-  try {
-    const result = await babel.transformAsync(code, {
-      filename,
-      presets: [
-        require("@babel/preset-react"),
-        require("@babel/preset-typescript")
-      ],
-      plugins: [],
-      sourceMaps: false
-    });
+const terser = require("terser");
 
-    return result.code;
-  } catch (err) {
-    console.warn(`⚠ Babel failed on ${filename}: ${err.message}`);
-    return code; // fallback, allow Terser to try
-  }
-}
-
-/* ----------------------------------------------------------
-   MINIFY FILE (Reversible)
----------------------------------------------------------- */
 async function minifyFile(file, map) {
-  const original = await fs.readFile(file, "utf8");
-  map[file] = original; // store original code
+  let original = await fs.readFile(file, "utf8");
+
+  // ALWAYS strip BOM before use
+  original = stripBOM(original);
+
+  // Save original for reversal
+  map[file] = original;
 
   try {
-    // First: JSX → JS
-    const jsCode = await transformWithBabel(original, file);
-
-    // Second: Minify
-    const minified = await terser.minify(jsCode, {
+    const result = await terser.minify(original, {
       compress: true,
       mangle: true,
-      ecma: 2020,
-      sourceMap: false
+      ecma: 2020
     });
 
-    if (!minified.code) {
-      console.warn(`⚠ Terser returned empty output for ${file}`);
+    if (!result.code) {
+      console.warn(`⚠ Minifier returned empty output for ${file}`);
       return;
     }
 
-    await fs.writeFile(file, minified.code, "utf8");
+    await fs.writeFile(file, result.code, "utf8");
     console.log(`Minified ${file}`);
   } catch (err) {
     console.warn(`⚠ Minification failed for ${file}: ${err.message}`);
@@ -117,7 +94,7 @@ async function minifyFile(file, map) {
 }
 
 /* ----------------------------------------------------------
-   RESTORE ORIGINAL FILES
+   DEMINIFY (restore original)
 ---------------------------------------------------------- */
 async function deminifyFile(file, map) {
   if (!map[file]) {
@@ -125,6 +102,7 @@ async function deminifyFile(file, map) {
     return;
   }
 
+  // Restore exactly as saved (without BOM)
   await fs.writeFile(file, map[file], "utf8");
   console.log(`Restored ${file}`);
 }
@@ -155,9 +133,9 @@ async function main() {
     return;
   }
 
-  if (cmd === "restore" || cmd === "deminify") {
+  if (cmd === "deminify") {
     if (!await fs.pathExists(MAP_FILE)) {
-      console.error("❌ No minify-map.json found — cannot restore.");
+      console.error("❌ No minify-map.json found — cannot deminify.");
       process.exit(1);
     }
 
@@ -170,7 +148,7 @@ async function main() {
     return;
   }
 
-  console.log("Usage: minify.js [minify|restore]");
+  console.log("Usage: minify.js [minify|deminify]");
 }
 
 main();

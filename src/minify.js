@@ -1,99 +1,97 @@
 #!/usr/bin/env node
-/**
- * Zozzona reversible JS minifier with JSX/TS support.
- * PACK:
- *   - Babel transform (JSX → JS)
- *   - Minify with Terser
- *   - Save ORIGINAL source in minify-map.json
- *
- * UNPACK:
- *   - Restore original source files
- */
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { sync as globSync } from "glob";
+import * as babel from "@babel/core";
+import terser from "terser";
 
-import fs from "fs-extra";
-import { glob } from "glob";
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
+// JSX + TS support
+import presetReact from "@babel/preset-react";
+import presetTypescript from "@babel/preset-typescript";
 
-const babel = require("@babel/core");
-const terser = require("terser");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const MAP_FILE = "minify-map.json";
-
-/* ----------------------------------------------------------
-   Resolve PACK_INCLUDE / PACK_IGNORE
----------------------------------------------------------- */
-function resolvePatterns() {
-  const include = process.env.PACK_INCLUDE
-    ? process.env.PACK_INCLUDE.split(",").filter(Boolean)
-    : [];
-
-  const ignore = process.env.PACK_IGNORE
-    ? process.env.PACK_IGNORE.split(",").filter(Boolean)
-    : [];
-
-  return { include, ignore };
+// ------------------------------------------------------------
+// CLI
+// ------------------------------------------------------------
+const MODE = process.argv[2]; // "minify" | "restore"
+if (!["minify", "restore"].includes(MODE)) {
+  console.error("Usage: minify.js [minify|restore]");
+  process.exit(1);
 }
 
-const { include: INCLUDE, ignore: IGNORE } = resolvePatterns();
+// Map to restore original sources
+const MAP_FILE = "minify-map.json";
+let restoreMap = {};
 
-/* ----------------------------------------------------------
-   Get JS/JSX/TS/TSX files
----------------------------------------------------------- */
-async function getJsFiles() {
-  if (!INCLUDE.length) return [];
+function loadRestoreMap() {
+  if (fs.existsSync(MAP_FILE)) {
+    try {
+      restoreMap = JSON.parse(fs.readFileSync(MAP_FILE, "utf8"));
+    } catch {
+      console.error("❌ Failed to read minify-map.json");
+      process.exit(1);
+    }
+  }
+}
 
-  const pattern =
-    INCLUDE.length === 1 ? INCLUDE[0] : `{${INCLUDE.join(",")}}`;
-
-  const files = await glob(pattern, {
-    nodir: true,
+// ------------------------------------------------------------
+// Find source files (only JS/TS/JSX/TSX)
+// ------------------------------------------------------------
+function getSourceFiles() {
+  return globSync("**/*.{js,jsx,ts,tsx}", {
     ignore: [
-      ...IGNORE,
-      "**/*.json",
-      "**/*.css",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/*.enc",
+      "**/*.map"
     ]
   });
-
-  return files.filter(f => /\.(js|jsx|ts|tsx)$/.test(f));
 }
 
-/* ----------------------------------------------------------
-   TRANSPILE + MINIFY
----------------------------------------------------------- */
-async function transformAndMinify(file, map) {
-  const original = await fs.readFile(file, "utf8");
-  map[file] = original;
+// ------------------------------------------------------------
+// Babel → Terser pipeline
+// ------------------------------------------------------------
+async function transformAndMinify(file) {
+  const original = fs.readFileSync(file, "utf8");
 
   try {
-    // 1. Babel → turn JSX into JS
+    // ---------------------------
+    // BABEL TRANSFORM
+    // ---------------------------
     const babelOut = await babel.transformAsync(original, {
+      filename: file,                         // ← REQUIRED FIX
       presets: [
-        require("@babel/preset-react"),
-        require("@babel/preset-typescript")
+        [presetReact, {}],
+        [presetTypescript, {}]
       ],
       sourceMaps: false,
       ast: false
     });
 
-    if (!babelOut || !babelOut.code) {
-      console.warn(`⚠ Babel returned empty output for ${file}`);
-      return;
-    }
+    const babelCode = babelOut.code || original;
 
-    // 2. Terser minify
-    const minOut = await terser.minify(babelOut.code, {
+    // ---------------------------
+    // TERSER MINIFY
+    // ---------------------------
+    const minified = await terser.minify(babelCode, {
       compress: true,
       mangle: true
     });
 
-    if (!minOut.code) {
-      console.warn(`⚠ Terser returned empty output for ${file}`);
+    if (!minified.code) {
+      console.warn(`⚠ Terser failed for ${file}`);
       return;
     }
 
-    await fs.writeFile(file, minOut.code, "utf8");
+    // Save original for reversible restore
+    restoreMap[file] = original;
+
+    // Write minified code
+    fs.writeFileSync(file, minified.code, "utf8");
     console.log(`Minified ${file}`);
 
   } catch (err) {
@@ -101,60 +99,41 @@ async function transformAndMinify(file, map) {
   }
 }
 
-/* ----------------------------------------------------------
-   RESTORE original JS files
----------------------------------------------------------- */
-async function restoreFiles(files, map) {
+// ------------------------------------------------------------
+// RESTORE ORIGINAL SOURCES
+// ------------------------------------------------------------
+function restoreOriginal(file, original) {
+  if (!fs.existsSync(file)) return;
+  fs.writeFileSync(file, original, "utf8");
+  console.log(`Restored ${file}`);
+}
+
+// ------------------------------------------------------------
+// MAIN EXECUTION
+// ------------------------------------------------------------
+(async function main() {
+  if (MODE === "restore") {
+    loadRestoreMap();
+
+    for (const [file, original] of Object.entries(restoreMap)) {
+      restoreOriginal(file, original);
+    }
+
+    console.log("✔ Restore complete");
+    return;
+  }
+
+  // MODE === "minify"
+  const files = getSourceFiles();
+
+  const outMap = {};
+
   for (const file of files) {
-    if (!map[file]) {
-      console.warn(`⚠ No original stored for ${file}`);
-      continue;
-    }
-
-    await fs.writeFile(file, map[file], "utf8");
-    console.log(`Restored ${file}`);
-  }
-}
-
-/* ----------------------------------------------------------
-   MAIN
----------------------------------------------------------- */
-async function main() {
-  const cmd = process.argv[2] || "minify";
-  const files = await getJsFiles();
-
-  if (!files.length) {
-    console.log("ℹ No JS files to process.");
-    return;
+    await transformAndMinify(file);
   }
 
-  if (cmd === "minify") {
-    let map = {};
-    if (await fs.pathExists(MAP_FILE)) {
-      map = await fs.readJson(MAP_FILE);
-    }
+  // Write map so UNPACK can restore originals
+  fs.writeFileSync(MAP_FILE, JSON.stringify(restoreMap), "utf8");
 
-    for (const file of files) {
-      await transformAndMinify(file, map);
-    }
-
-    await fs.writeJson(MAP_FILE, map, { spaces: 2 });
-    console.log(`Saved reversible map → ${MAP_FILE}`);
-    return;
-  }
-
-  if (cmd === "restore" || cmd === "deminify") {
-    if (!await fs.pathExists(MAP_FILE)) {
-      console.error("❌ No minify-map.json found — cannot restore.");
-      process.exit(1);
-    }
-
-    const map = await fs.readJson(MAP_FILE);
-    await restoreFiles(files, map);
-    return;
-  }
-
-  console.log("Usage: minify.js [minify|restore]");
-}
-
-main();
+  console.log(`Saved reversible map → ${MAP_FILE}`);
+})();

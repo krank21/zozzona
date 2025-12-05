@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { sync as globSync } from "glob";
 import * as babel from "@babel/core";
-import { minify } from "terser"; // ← FIXED: Named import instead of default
+import { minify } from "terser";
 
 // JSX + TS support
 import presetReact from "@babel/preset-react";
@@ -29,11 +29,15 @@ let restoreMap = {};
 function loadRestoreMap() {
   if (fs.existsSync(MAP_FILE)) {
     try {
-      restoreMap = JSON.parse(fs.readFileSync(MAP_FILE, "utf8"));
-    } catch {
-      console.error("❌ Failed to read minify-map.json");
+      const content = fs.readFileSync(MAP_FILE, "utf8");
+      restoreMap = JSON.parse(content);
+      console.log(`📖 Loaded restore map with ${Object.keys(restoreMap).length} files`);
+    } catch (err) {
+      console.error(`❌ Failed to read minify-map.json: ${err.message}`);
       process.exit(1);
     }
+  } else {
+    console.warn(`⚠ ${MAP_FILE} does not exist`);
   }
 }
 
@@ -75,7 +79,7 @@ async function transformAndMinify(file) {
     const babelCode = babelOut.code || original;
 
     // ---------------------------
-    // TERSER MINIFY - FIXED: Use named import
+    // TERSER MINIFY
     // ---------------------------
     const minified = await minify(babelCode, {
       compress: true,
@@ -103,7 +107,10 @@ async function transformAndMinify(file) {
 // RESTORE ORIGINAL SOURCES
 // ------------------------------------------------------------
 function restoreOriginal(file, original) {
-  if (!fs.existsSync(file)) return;
+  if (!fs.existsSync(file)) {
+    console.warn(`⚠ File no longer exists: ${file}`);
+    return;
+  }
   fs.writeFileSync(file, original, "utf8");
   console.log(`Restored ${file}`);
 }
@@ -114,6 +121,15 @@ function restoreOriginal(file, original) {
 (async function main() {
   if (MODE === "restore") {
     loadRestoreMap();
+
+    const fileCount = Object.keys(restoreMap).length;
+
+    if (fileCount === 0) {
+      console.warn("⚠ No files to restore (map is empty)");
+      return;
+    }
+
+    console.log(`🔄 Restoring ${fileCount} files...`);
 
     for (const [file, original] of Object.entries(restoreMap)) {
       restoreOriginal(file, original);
@@ -126,12 +142,17 @@ function restoreOriginal(file, original) {
   // MODE === "minify"
   const files = getSourceFiles();
 
+  console.log(`📁 Found ${files.length} files to minify`);
+
   for (const file of files) {
     await transformAndMinify(file);
   }
 
-  // Write map so UNPACK can restore originals
-  fs.writeFileSync(MAP_FILE, JSON.stringify(restoreMap), "utf8");
+  const mapSize = Object.keys(restoreMap).length;
+  console.log(`📝 Saving restore map with ${mapSize} files...`);
 
-  console.log(`Saved reversible map → ${MAP_FILE}`);
+  // Write map so UNPACK can restore originals
+  fs.writeFileSync(MAP_FILE, JSON.stringify(restoreMap, null, 2), "utf8");
+
+  console.log(`✔ Saved reversible map → ${MAP_FILE}`);
 })();

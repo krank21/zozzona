@@ -205,11 +205,22 @@ function decryptMaps() {
 // ===============================================================
 // JSON + CSS reversible minification
 // ===============================================================
+
+// FIXED: Strip BOM from file content
+function stripBOM(content) {
+  if (content.charCodeAt(0) === 0xFEFF) {
+    return content.slice(1);
+  }
+  return content;
+}
+
 function getJsonAndCssSourceFiles() {
   const ignore = [
     "**/node_modules/**",
     "**/dist/**",
-    "**/.git/**"
+    "**/.git/**",
+    "**/package.json",           // FIXED: Ignore package.json files
+    "**/package-lock.json"       // FIXED: Ignore package-lock.json files
   ];
 
   for (const ig of PACK_CONFIG.ignore) {
@@ -221,8 +232,14 @@ function getJsonAndCssSourceFiles() {
 
   for (const folder of PACK_CONFIG.folders) {
     const base = folder.replace(/\/+$/, "");
-    jsonFiles.push(...globSync(`${base}/**/*.json`, { ignore }));
-    cssFiles.push(...globSync(`${base}/**/*.css`, { ignore }));
+
+    // Find JSON files (excluding package.json files)
+    const foundJson = globSync(`${base}/**/*.json`, { ignore });
+    jsonFiles.push(...foundJson);
+
+    // Find CSS files
+    const foundCss = globSync(`${base}/**/*.css`, { ignore });
+    cssFiles.push(...foundCss);
   }
 
   return { jsonFiles, cssFiles };
@@ -244,13 +261,16 @@ async function reversibleMinifyJsonAndCss() {
 
   for (const file of jsonFiles) {
     try {
-      const original = fs.readFileSync(file, "utf8");
+      // FIXED: Strip BOM before parsing
+      let original = fs.readFileSync(file, "utf8");
+      original = stripBOM(original);
+
       jsonMap[file] = original;
       const parsed = JSON.parse(original);
       fs.writeFileSync(file, JSON.stringify(parsed), "utf8");
       console.log("Minified JSON:", file);
     } catch (err) {
-      console.warn("⚠ Invalid JSON:", file);
+      console.warn(`⚠ Invalid JSON (${file}): ${err.message}`);
     }
   }
 
@@ -387,7 +407,6 @@ async function obfuscateDist(jsFiles) {
 }
 
 async function minifyDist(jsFiles) {
-  // FIXED: Named import instead of default
   const { minify } = await import("terser");
 
   for (const file of jsFiles) {
@@ -401,10 +420,16 @@ async function minifyDist(jsFiles) {
 function minifyJSONFiles(jsonFiles) {
   for (const file of jsonFiles) {
     try {
-      const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+      // FIXED: Strip BOM before parsing
+      let content = fs.readFileSync(file, "utf8");
+      content = stripBOM(content);
+
+      const parsed = JSON.parse(content);
       fs.writeFileSync(file, JSON.stringify(parsed), "utf8");
       console.log("Minified JSON (dist):", file);
-    } catch {}
+    } catch (err) {
+      console.warn(`⚠ Invalid JSON (${file}): ${err.message}`);
+    }
   }
 }
 

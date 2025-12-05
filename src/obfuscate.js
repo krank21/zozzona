@@ -13,16 +13,31 @@ function stripBOM(str) {
   return str.replace(/^\uFEFF/, "");
 }
 
-/* PACK_INCLUDE / PACK_IGNORE */
+/* PACK_INCLUDE / PACK_IGNORE - FIXED to handle pipe delimiter */
 function buildPatternFromEnv() {
-  const inc = process.env.PACK_INCLUDE ? process.env.PACK_INCLUDE.split(',') : [];
-  const ign = process.env.PACK_IGNORE ? process.env.PACK_IGNORE.split(',') : [];
+  const inc = process.env.PACK_INCLUDE ? process.env.PACK_INCLUDE.split('|') : [];
+  const ign = process.env.PACK_IGNORE ? process.env.PACK_IGNORE.split('|') : [];
 
+  // Filter out empty patterns
+  const patterns = inc.filter(p => p && p.trim());
+
+  // If we have include patterns, return them as array or single pattern
   let pattern;
-  if (inc.length === 1) pattern = inc[0];
-  else if (inc.length > 1) pattern = `{${inc.join(',')}}`;
+  if (patterns.length === 0) {
+    pattern = null;
+  } else if (patterns.length === 1) {
+    pattern = patterns[0];
+  } else {
+    // Return array of patterns for glob to handle
+    pattern = patterns;
+  }
 
-  process.env.OBF_IGNORE = ign.join(',');
+  // Set ignore patterns (keep pipe delimiter for consistency)
+  process.env.OBF_IGNORE = ign.join('|');
+
+  console.log(`📋 OBF Pattern: ${JSON.stringify(pattern)}`);
+  console.log(`🚫 OBF Ignore: ${process.env.OBF_IGNORE}`);
+
   return pattern;
 }
 const CONFIG_PATTERN = buildPatternFromEnv();
@@ -45,7 +60,7 @@ async function readAllFiles(globPattern) {
   ];
 
   if (process.env.OBF_IGNORE) {
-    ignoreList.push(...process.env.OBF_IGNORE.split(','));
+    ignoreList.push(...process.env.OBF_IGNORE.split('|'));
   }
 
   return await glob(globPattern, { nodir: true, ignore: ignoreList });

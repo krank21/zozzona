@@ -42,18 +42,71 @@ function loadRestoreMap() {
 }
 
 // ------------------------------------------------------------
-// Find source files (only JS/TS/JSX/TSX)
+// RESPECT ENV VARIABLES SET BY RUNNER (same as obfuscate.js)
 // ------------------------------------------------------------
 function getSourceFiles() {
-  return globSync("**/*.{js,jsx,ts,tsx}", {
-    ignore: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/build/**",
-      "**/*.enc",
-      "**/*.map"
-    ]
-  });
+  // Check if runner.js set these env vars
+  const packInclude = process.env.PACK_INCLUDE;
+  const packIgnore = process.env.PACK_IGNORE;
+
+  let patterns = "**/*.{js,jsx,ts,tsx}";
+  let ignore = [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/*.enc",
+    "**/*.map"
+  ];
+
+  // If runner.js set patterns, use those instead
+  if (packInclude) {
+    const rawPatterns = packInclude.split("|");  // Split by | not comma (to preserve {js,jsx,ts,tsx})
+    console.log(`📋 Raw PACK_INCLUDE patterns: ${rawPatterns.length} patterns`);
+    console.log(`   Patterns: ${JSON.stringify(rawPatterns.slice(0, 5))}...`);
+
+    // Filter to only glob patterns (not bare folder names)
+    // Keep patterns that contain * or end with file extensions
+    patterns = rawPatterns.filter(p =>
+      p.includes('*') || /\.(js|jsx|ts|tsx)$/.test(p)
+    );
+
+    console.log(`📋 Filtered to ${patterns.length} valid glob patterns`);
+    console.log(`   Using: ${JSON.stringify(patterns)}`);
+  }
+
+  if (packIgnore) {
+    const additionalIgnore = packIgnore.split("|").filter(p => p.trim());
+    console.log(`🚫 Raw ignore patterns: ${JSON.stringify(additionalIgnore)}`);
+
+    // Don't add patterns that would exclude .js files
+    const safeIgnore = additionalIgnore.filter(p =>
+      !p.includes('*.js') &&
+      !p.includes('*.jsx') &&
+      !p.includes('*.ts') &&
+      !p.includes('*.tsx')
+    );
+    ignore.push(...safeIgnore);
+    console.log(`🚫 Using ${safeIgnore.length} PACK_IGNORE patterns`);
+    console.log(`   Final ignore: ${JSON.stringify(ignore)}`);
+  }
+
+  console.log(`🔍 About to glob with:`);
+  console.log(`   Patterns: ${JSON.stringify(patterns)}`);
+  console.log(`   Ignore: ${JSON.stringify(ignore)}`);
+
+  const files = globSync(patterns, { ignore, nodir: true });
+
+  console.log(`🔍 Glob found ${files.length} files`);
+  if (files.length > 0) {
+    console.log(`   First 3 files: ${JSON.stringify(files.slice(0, 3))}`);
+  }
+
+  // Filter out non-JS files that might have snuck in
+  const filtered = files.filter(f => /\.(js|jsx|ts|tsx)$/.test(f));
+
+  console.log(`✅ Filtered to ${filtered.length} JS/TS files`);
+
+  return filtered;
 }
 
 // ------------------------------------------------------------
@@ -144,15 +197,32 @@ function restoreOriginal(file, original) {
 
   console.log(`📁 Found ${files.length} files to minify`);
 
+  let successCount = 0;
+  let failCount = 0;
+
   for (const file of files) {
-    await transformAndMinify(file);
+    try {
+      await transformAndMinify(file);
+      successCount++;
+    } catch (err) {
+      failCount++;
+      console.warn(`⚠ Unhandled error minifying ${file}: ${err.message}`);
+    }
   }
 
   const mapSize = Object.keys(restoreMap).length;
-  console.log(`📝 Saving restore map with ${mapSize} files...`);
+  console.log(`\n📊 Minification complete:`);
+  console.log(`   ✅ Success: ${successCount}`);
+  console.log(`   ❌ Failed: ${failCount}`);
+  console.log(`   📦 Map size: ${mapSize} files`);
+  console.log(`📝 Saving restore map...`);
 
-  // Write map so UNPACK can restore originals
-  fs.writeFileSync(MAP_FILE, JSON.stringify(restoreMap, null, 2), "utf8");
-
-  console.log(`✔ Saved reversible map → ${MAP_FILE}`);
+  try {
+    // Write map so UNPACK can restore originals
+    fs.writeFileSync(MAP_FILE, JSON.stringify(restoreMap, null, 2), "utf8");
+    console.log(`✔ Saved reversible map → ${MAP_FILE}`);
+  } catch (err) {
+    console.error(`❌ Failed to save map: ${err.message}`);
+    process.exit(1);
+  }
 })();

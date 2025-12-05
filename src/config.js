@@ -79,7 +79,7 @@ function ensurePackageScripts() {
   if (!pkg.scripts.build) {
     console.warn("⚠ No build script detected. Not modifying build.");
   } else if (!pkg.scripts.build.includes("pack:dist")) {
-    //pkg.scripts.build = pkg.scripts.build + " && npm run pack:dist";
+    pkg.scripts.build = pkg.scripts.build + " && npm run pack:dist";
     changed = true;
     console.log("✔ Updated build script to automatically pack dist");
   }
@@ -142,11 +142,19 @@ function installHusky() {
   // 2. Pre-commit hook
   // -----------------------------------------------------
   const preCommit = `#!/usr/bin/env sh
-# Husky v9 shell mode enabled via .huskyrc
-PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+  . "$(dirname "$0")/_/husky.sh"
 
-echo "🔒 Packing before commit..."
-npm run pack || exit 1
+  # Change to project root
+  cd "$(git rev-parse --show-toplevel)"
+
+  NODE_PATH="$(which node 2>/dev/null | xargs dirname)"
+  export PATH="$NODE_PATH:/usr/local/bin:/opt/homebrew/bin:$PATH"
+
+  echo "🔒 Packing before commit..."
+  npm run pack || exit 1
+
+  echo "📝 Staging protected files..."
+  git add -A :/ || exit 1
 `;
 
   fs.writeFileSync(".husky/pre-commit", preCommit);
@@ -157,8 +165,12 @@ npm run pack || exit 1
   // 3. Post-commit hook
   // -----------------------------------------------------
   const postCommit = `#!/usr/bin/env sh
-# Husky v9 shell mode enabled via .huskyrc
-PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+. "$(dirname "$0")/_/husky.sh"
+
+cd "$(git rev-parse --show-toplevel)"
+
+NODE_PATH="$(which node 2>/dev/null | xargs dirname)"
+export PATH="$NODE_PATH:/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 echo "🔓 Unpacking after commit..."
 npm run unpack || exit 0

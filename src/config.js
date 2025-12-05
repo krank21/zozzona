@@ -79,7 +79,7 @@ function ensurePackageScripts() {
   if (!pkg.scripts.build) {
     console.warn("⚠ No build script detected. Not modifying build.");
   } else if (!pkg.scripts.build.includes("pack:dist")) {
-    pkg.scripts.build = pkg.scripts.build + " && npm run pack:dist";
+    //pkg.scripts.build = pkg.scripts.build + " && npm run pack:dist";
     changed = true;
     console.log("✔ Updated build script to automatically pack dist");
   }

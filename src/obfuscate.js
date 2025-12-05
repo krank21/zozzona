@@ -109,7 +109,17 @@ async function obfuscate(globPattern = DEFAULT_GLOB, mapFile = MAP_FILE) {
     return n;
   }
 
+  // Progress indicator
+  const totalFiles = files.length;
+  let processedCount = 0;
+
   for (const file of files) {
+    processedCount++;
+    const progress = `[${processedCount}/${totalFiles}]`;
+
+    // Show progress with current file
+    process.stdout.write(`\r⚙️  ${progress} Obfuscating: ${file}...`.substring(0, 100).padEnd(100));
+
     const abs = path.resolve(file);
 
     // ⭐ Strip BOM before parsing
@@ -119,6 +129,7 @@ async function obfuscate(globPattern = DEFAULT_GLOB, mapFile = MAP_FILE) {
     let ast;
     try { ast = parseCode(code, file); }
     catch (e) {
+      process.stdout.write('\r' + ' '.repeat(100) + '\r');
       console.warn(`Parse error in ${file}: ${e.message}`);
       continue;
     }
@@ -131,7 +142,7 @@ async function obfuscate(globPattern = DEFAULT_GLOB, mapFile = MAP_FILE) {
           if (name.startsWith('_r')) continue;
           const newName = genName(name);
           try { path.scope.rename(name, newName); }
-          catch (e) { console.warn(`Rename failed ${name} in ${file}`); }
+          catch (e) { /* ignore rename failures */ }
         }
       },
       ImportSpecifier(p){ renameImportLike(p, genName); },
@@ -141,10 +152,14 @@ async function obfuscate(globPattern = DEFAULT_GLOB, mapFile = MAP_FILE) {
 
     const out = generate(ast, { comments: true }, code).code;
     await fs.writeFile(abs, out, 'utf8');
-    console.log(`Obfuscated ${file}`);
+
+    // Clear progress line and show completion
+    process.stdout.write('\r' + ' '.repeat(100) + '\r');
+    console.log(`✓ Obfuscated ${file}`);
   }
 
   await fs.writeJson(mapFile, mapping, { spaces: 2 });
+  console.log(`\n✔ Obfuscation complete: ${totalFiles} files processed`);
 }
 
 function renameImportLike(path, genName){

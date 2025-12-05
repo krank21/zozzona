@@ -52,7 +52,7 @@ function ensureCorrectScripts() {
     obfuscate: "node node_modules/@zozzona/js/src/obfuscate.js obfuscate",
     deobfuscate: "node node_modules/@zozzona/js/src/obfuscate.js deobfuscate",
     minify: "node node_modules/@zozzona/js/src/minify.js minify",
-    deminify: "node node_modules/@zozzona/js/src/minify.js deminify"
+    deminify: "node node_modules/@zozzona/js/src/minify.js restore"
   };
 
   let changed = false;
@@ -335,7 +335,7 @@ async function runUnpackPipeline() {
 }
 
 // ===============================================================
-// DIST PIPELINE (unchanged from your original version)
+// DIST PIPELINE
 // ===============================================================
 const DIST_ROOT = "server/client/dist";
 
@@ -387,11 +387,12 @@ async function obfuscateDist(jsFiles) {
 }
 
 async function minifyDist(jsFiles) {
-  const terser = await import("terser");
+  // FIXED: Named import instead of default
+  const { minify } = await import("terser");
 
   for (const file of jsFiles) {
     const code = fs.readFileSync(file, "utf8");
-    const result = await terser.minify(code, { compress: true, mangle: true });
+    const result = await minify(code, { compress: true, mangle: true });
     fs.writeFileSync(file, result.code, "utf8");
     console.log("Minified (dist):", file);
   }

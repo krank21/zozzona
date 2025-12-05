@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { sync as globSync } from "glob";
 import * as babel from "@babel/core";
-import terser from "terser";
+import { minify } from "terser"; // ← FIXED: Named import instead of default
 
 // JSX + TS support
 import presetReact from "@babel/preset-react";
@@ -63,7 +63,7 @@ async function transformAndMinify(file) {
     // BABEL TRANSFORM
     // ---------------------------
     const babelOut = await babel.transformAsync(original, {
-      filename: file,                         // ← REQUIRED FIX
+      filename: file,
       presets: [
         [presetReact, {}],
         [presetTypescript, {}]
@@ -75,9 +75,9 @@ async function transformAndMinify(file) {
     const babelCode = babelOut.code || original;
 
     // ---------------------------
-    // TERSER MINIFY
+    // TERSER MINIFY - FIXED: Use named import
     // ---------------------------
-    const minified = await terser.minify(babelCode, {
+    const minified = await minify(babelCode, {
       compress: true,
       mangle: true
     });
@@ -125,8 +125,6 @@ function restoreOriginal(file, original) {
 
   // MODE === "minify"
   const files = getSourceFiles();
-
-  const outMap = {};
 
   for (const file of files) {
     await transformAndMinify(file);

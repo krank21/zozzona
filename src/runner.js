@@ -295,16 +295,120 @@ function restoreJsonAndCssFromMaps() {
 }
 
 // ===============================================================
+// BOM STRIPPER - Run before any processing
+// ===============================================================
+
+// IMPROVED: Strip BOM from both string and buffer level
+function stripBOM(str) {
+  if (!str) return str;
+  // Remove UTF-8 BOM (U+FEFF)
+  if (str.charCodeAt(0) === 0xFEFF) {
+    return str.slice(1);
+  }
+  // Also handle the string representation
+  if (str.startsWith('\uFEFF')) {
+    return str.slice(1);
+  }
+  // Also strip the literal UTF-8 BOM bytes if they somehow got in
+  if (str.startsWith('ï»¿')) {
+    return str.slice(3);
+  }
+  return str;
+}
+
+function stripBOMFromFile(filePath) {
+  try {
+    // Read as buffer first to see if BOM exists at byte level
+    const buffer = fs.readFileSync(filePath);
+    let hadBOM = false;
+
+    // Check for UTF-8 BOM at byte level (EF BB BF)
+    if (buffer.length >= 3 &&
+        buffer[0] === 0xEF &&
+        buffer[1] === 0xBB &&
+        buffer[2] === 0xBF) {
+      // Strip BOM at byte level
+      const cleanBuffer = buffer.slice(3);
+      fs.writeFileSync(filePath, cleanBuffer);
+      hadBOM = true;
+    } else {
+      // Also try string-level BOM removal as fallback
+      const content = buffer.toString('utf8');
+      const stripped = stripBOM(content);
+      if (content !== stripped) {
+        fs.writeFileSync(filePath, stripped, 'utf8');
+        hadBOM = true;
+      }
+    }
+
+    if (hadBOM) {
+      console.log(`🧹 Stripped BOM from: ${filePath}`);
+      return true;
+    }
+  } catch (err) {
+    // File doesn't exist or can't be read, skip
+  }
+  return false;
+}
+
+function stripAllBOMs() {
+  console.log("🧹 Checking for BOMs in source files...");
+
+  let stripped = 0;
+
+  // Strip from ALL package.json files (be very aggressive)
+  const packageJsonFiles = globSync("**/package.json", {
+    ignore: ["**/node_modules/**"],
+    absolute: true
+  });
+
+  console.log(`   Found ${packageJsonFiles.length} package.json files to check`);
+
+  for (const file of packageJsonFiles) {
+    if (stripBOMFromFile(file)) stripped++;
+  }
+
+  // Also explicitly check server/package.json
+  if (fs.existsSync("server/package.json")) {
+    if (stripBOMFromFile("server/package.json")) stripped++;
+  }
+
+  // Strip from all JS/TS files in configured folders
+  for (const folder of PACK_CONFIG.folders) {
+    const files = globSync(`${folder}/**/*.{js,jsx,ts,tsx,json}`, {
+      ignore: ["**/node_modules/**", "**/dist/**"]
+    });
+
+    for (const file of files) {
+      if (stripBOMFromFile(file)) stripped++;
+    }
+  }
+
+  if (stripped > 0) {
+    console.log(`✅ Stripped BOMs from ${stripped} file(s)`);
+  } else {
+    console.log(`   No BOMs found`);
+  }
+}
+
+// ===============================================================
 // PACK PIPELINE
 // ===============================================================
 async function runPackPipeline() {
   console.log("🔒 Running PACK (source)…");
+
+  // Strip BOMs FIRST before any processing
+  stripAllBOMs();
 
   const env = buildGlobEnv();
 
   await clearMaps();
 
   await run("npm", ["run", "obfuscate"], env);
+
+  // Strip BOMs AGAIN after obfuscation (in case any were introduced)
+  stripAllBOMs();
+
   await run("npm", ["run", "minify"], env);
 
   await reversibleMinifyJsonAndCss();
